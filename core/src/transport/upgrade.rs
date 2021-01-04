@@ -30,7 +30,6 @@ use crate::upgrade::Upgrader;
 use crate::{transport::TransportError, Multiaddr, Transport};
 use async_trait::async_trait;
 use libp2prs_traits::{ReadEx, WriteEx};
-use log::trace;
 
 /// A `TransportUpgrade` is a `Transport` that wraps another `Transport` and adds
 /// upgrade capabilities to all inbound and outbound connection attempts.
@@ -81,11 +80,12 @@ where
     }
 
     async fn dial(&mut self, addr: Multiaddr) -> Result<Self::Output, TransportError> {
-        trace!("dialing {} ...", addr);
         let socket = self.inner.dial(addr).await?;
         let sec = self.sec.clone();
+        log::debug!("upgrading outbound security towards {}...", socket.remote_multiaddr());
         let sec_socket = sec.select_outbound(socket).await?;
         let mux = self.mux.clone();
+        log::debug!("security applied, upgrading outbound stream muxer...");
         let o = mux.select_outbound(sec_socket).await?;
         Ok(Box::new(o))
     }
@@ -123,15 +123,16 @@ where
     type Output = IStreamMuxer;
 
     async fn accept(&mut self) -> Result<Self::Output, TransportError> {
-        let stream = self.inner.accept().await?;
+        let socket = self.inner.accept().await?;
         let sec = self.sec.clone();
 
-        trace!("accept a new connection from {}, upgrading...", stream.remote_multiaddr());
+        log::debug!("accept a new connection from {}, upgrading inbound security...", socket.remote_multiaddr());
         //futures_timer::Delay::new(Duration::from_secs(3)).await;
-        let sec_socket = sec.select_inbound(stream).await?;
+        let sec_socket = sec.select_inbound(socket).await?;
 
         let mux = self.mux.clone();
 
+        log::debug!("security applied, upgrading inbound stream muxer...");
         let o = mux.select_inbound(sec_socket).await?;
         Ok(Box::new(o))
     }

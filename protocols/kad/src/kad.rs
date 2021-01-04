@@ -45,7 +45,7 @@ use crate::protocol::{
 
 use crate::addresses::PeerInfo;
 use crate::kbucket::KBucketsTable;
-use crate::query::{FixedQuery, IterativeQuery, PeerRecord, QueryConfig, QueryType};
+use crate::query::{FixedQuery, IterativeQuery, PeerRecord, QueryConfig, QueryType, QueryStats};
 use crate::store::RecordStore;
 use crate::{kbucket, record, KadError, ProviderRecord, Record};
 use libp2prs_core::peerstore::{ADDRESS_TTL, PROVIDER_ADDR_TTL};
@@ -65,6 +65,9 @@ pub struct Kademlia<TStore> {
 
     /// The config for queries.
     query_config: QueryConfig,
+
+    /// The statistics of Kad DHT.
+    stats: KademliaStats,
 
     /// The cache manager of Kademlia messenger.
     messengers: Option<MessengerManager>,
@@ -120,6 +123,25 @@ pub struct Kademlia<TStore> {
     control_tx: mpsc::UnboundedSender<ControlCommand>,
     control_rx: mpsc::UnboundedReceiver<ControlCommand>,
 }
+
+/// The statistics of Kademlia.
+#[derive(Debug, Default)]
+pub struct KademliaStats {
+    pub query: QueryStats,
+    pub message_rx: MessageStats,
+    pub message_tx: MessageStats,
+}
+
+#[derive(Debug, Default)]
+pub struct MessageStats {
+    pub(crate) ping: usize,
+    pub(crate) find_node: usize,
+    pub(crate) get_provider: usize,
+    pub(crate) add_provider: usize,
+    pub(crate) get_value: usize,
+    pub(crate) put_value: usize,
+}
+
 
 /// The configuration for the `Kademlia` behaviour.
 ///
@@ -378,6 +400,7 @@ where
             protocol_config: config.protocol_config,
             bootstrapped: false,
             query_config: config.query_config,
+            stats: Default::default(),
             messengers: None,
             connected_peers: Default::default(),
             provider_timer_handle: None,
@@ -1323,6 +1346,12 @@ where
         self.try_deactivate_peer(peer_id);
     }
 
+    // handle a Kad peer is dead.
+    fn handle_query_stats(&mut self, stats: QueryStats) {
+        log::info!("iterative query report : {:?}", stats);
+        self.stats.query.merge(stats);
+    }
+
     // Handle Kad events sent from protocol handler.
     async fn handle_events(&mut self, msg: Option<ProtocolEvent>) -> Result<()> {
         log::debug!("handle kad event: {:?}", msg);
@@ -1345,6 +1374,10 @@ where
             }
             Some(ProtocolEvent::KadPeerStopped(peer_id)) => {
                 self.handle_peer_stopped(peer_id);
+                Ok(())
+            }
+            Some(ProtocolEvent::IterativeQueryStats(stats)) => {
+                self.handle_query_stats(stats);
                 Ok(())
             }
             Some(ProtocolEvent::KadRequest { request, source, reply }) => {

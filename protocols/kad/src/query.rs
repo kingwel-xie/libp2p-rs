@@ -440,6 +440,8 @@ pub(crate) struct IterativeQuery {
     seeds: Vec<Key<PeerId>>,
     /// The KadPoster used to post ProtocolEvent to Kad main loop.
     poster: KadPoster,
+    /// The statistics of this iterative query.
+    stats: QueryStats,
 }
 
 impl IterativeQuery {
@@ -463,6 +465,7 @@ impl IterativeQuery {
             config,
             seeds,
             poster,
+            stats: QueryStats::empty()
         }
     }
 
@@ -494,6 +497,9 @@ impl IterativeQuery {
                     duration
                 );
                 log::trace!("{:?} returns closer peers: {:?}", source, closer);
+
+                me.stats.success += 1;
+
                 // note we don't add myself
                 closer.retain(|p| p.node_id != me.local_id.clone());
 
@@ -595,6 +601,9 @@ impl IterativeQuery {
             QueryUpdate::Unreachable(peer) => {
                 // set to PeerState::Unreachable
                 log::debug!("unreachable peer {:?} detected", peer);
+
+                me.stats.failure += 1;
+
                 closest_peers.set_peer_state(&peer, PeerState::Unreachable);
                 // signal for dead peer detected
                 let _ = me.poster.post(ProtocolEvent::KadPeerStopped(peer)).await;
@@ -621,6 +630,7 @@ impl IterativeQuery {
         let alpha_value = me.config.parallelism.get();
         let beta_value = me.config.beta_value.get();
         let k_value = me.config.replication_factor.get();
+        let start = Instant::now();
 
         // closest_peers is used to retrieve the closer peers. It is a sorted btree-map, which is
         // indexed by Distance of the peer. The queried 'key' is used to calculate the distance.
@@ -660,6 +670,8 @@ impl IterativeQuery {
                     connection_ty: KadConnectionType::CanConnect,
                 })
                 .collect();
+
+            me.stats.requests += 1;
 
             // deliver the seeds to kick off the initial query
             let _ = tx
@@ -709,6 +721,8 @@ impl IterativeQuery {
 
                     log::debug!("creating query job for {:?}", peer_id);
 
+                    me.stats.requests += 1;
+
                     let job = QueryJob {
                         key: me.key.clone(),
                         qt: me.query_type.clone(),
@@ -747,19 +761,23 @@ impl IterativeQuery {
                 query_results.closest_peers = Some(peers);
             }
 
+            me.stats.duration = Instant::now() - start;
+
+            // send the statistics back to the Kad main loop
+            let _ = me.poster.post(ProtocolEvent::IterativeQueryStats(me.stats)).await;
+
             f(Ok(query_results));
         });
     }
 }
 
 /// Execution statistics of a query.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Default)]
 pub struct QueryStats {
-    requests: u32,
-    success: u32,
-    failure: u32,
-    start: Option<Instant>,
-    end: Option<Instant>,
+    pub(crate) requests: u32,
+    pub(crate) success: u32,
+    pub(crate) failure: u32,
+    pub(crate) duration: Duration,
 }
 
 impl QueryStats {
@@ -768,8 +786,7 @@ impl QueryStats {
             requests: 0,
             success: 0,
             failure: 0,
-            start: None,
-            end: None,
+            duration: Duration::from_secs(0),
         }
     }
 
@@ -796,41 +813,17 @@ impl QueryStats {
         self.requests - (self.success + self.failure)
     }
 
-    /// Gets the duration of the query.
-    ///
-    /// If the query has not yet finished, the duration is measured from the
-    /// start of the query to the current instant.
-    ///
-    /// If the query did not yet start (i.e. yield the first peer to contact),
-    /// `None` is returned.
-    pub fn duration(&self) -> Option<Duration> {
-        if let Some(s) = self.start {
-            if let Some(e) = self.end {
-                Some(e - s)
-            } else {
-                Some(Instant::now() - s)
-            }
-        } else {
-            None
-        }
-    }
 
     /// Merges these stats with the given stats of another query,
-    /// e.g. to accumulate statistics from a multi-phase query.
+    /// e.g. to accumulate the global statistics.
     ///
-    /// Counters are merged cumulatively while the instants for
-    /// start and end of the queries are taken as the minimum and
-    /// maximum, respectively.
-    pub fn merge(self, other: QueryStats) -> Self {
+    /// Counters are merged cumulatively.
+    pub fn merge(&mut self, other: QueryStats) -> Self {
         QueryStats {
             requests: self.requests + other.requests,
             success: self.success + other.success,
             failure: self.failure + other.failure,
-            start: match (self.start, other.start) {
-                (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
-                (a, b) => a.or(b),
-            },
-            end: std::cmp::max(self.end, other.end),
+            duration: other.duration
         }
     }
 }

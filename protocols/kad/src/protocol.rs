@@ -46,6 +46,7 @@ use libp2prs_traits::{ReadEx, WriteEx};
 use crate::kad::KadPoster;
 use crate::record::{self, Record};
 use crate::{dht_proto as proto, KadError, ProviderRecord};
+use crate::query::QueryStats;
 
 /// The protocol name used for negotiating with multistream-select.
 pub const DEFAULT_PROTO_NAME: &[u8] = b"/ipfs/kad/1.0.0";
@@ -853,7 +854,7 @@ pub enum RefreshStage {
 
 /// Event produced by the Kademlia handler.
 #[derive(Debug)]
-pub enum ProtocolEvent {
+pub(crate) enum ProtocolEvent {
     /// Refresh state.
     Refresh(RefreshStage),
 
@@ -886,6 +887,9 @@ pub enum ProtocolEvent {
     /// Typically, this comes from either a query activity or an event
     /// notification from event bus(TBD).
     KadPeerStopped(PeerId),
+
+    /// The event to notify that iterative query has been finished.
+    IterativeQueryStats(QueryStats),
 
     /// Timer event for Provider cleanup.
     ProviderCleanupTimer,
