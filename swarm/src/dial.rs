@@ -49,10 +49,10 @@ type Result<T> = std::result::Result<T, SwarmError>;
 const CONCURRENT_DIALS_LIMIT: u32 = 100;
 
 /// DIAL_TIMEOUT is the maximum duration a Dial is allowed to take.This includes the time between dialing the raw network connection,protocol selection as well the handshake, if applicable.
-const DIAL_TIMEOUT: Duration = Duration::from_secs(60);
+const DIAL_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// DIAL_TIMEOUT_LOCAL is the maximum duration a Dial to local network address is allowed to take.This includes the time between dialing the raw network connection,protocol selection as well the handshake, if applicable.
-const DIAL_TIMEOUT_LOCAL: Duration = Duration::from_secs(5);
+const DIAL_TIMEOUT_LOCAL: Duration = Duration::from_secs(2);
 
 /// DIAL_ATTEMPTS is the maximum dial attempts (default: 1).
 const DIAL_ATTEMPTS: u32 = 1;
@@ -469,7 +469,7 @@ impl AsyncDialer {
             });
         }
 
-        log::debug!("total {} dialing jobs started, collecting...", num_jobs);
+        log::debug!("total {} dialing jobs for {:?} started, collecting...", num_jobs, peer_id);
         AsyncDialer::collect_dialing_result(rx, num_jobs, param).await
     }
 
@@ -482,8 +482,8 @@ impl AsyncDialer {
     ) -> Result<IStreamMuxer> {
         for i in 0..jobs {
             let peer_id = param.peer_id.clone();
-            log::debug!("[Dialer] job {:?} finished jobs={} ...", peer_id, i);
             let r = rx.next().await;
+            log::debug!("[Dialer] job for {:?} finished, seq={} ...", peer_id, i);
             match r {
                 Some((Ok(stream_muxer), addr)) => {
                     let reported_pid = stream_muxer.remote_peer();
@@ -491,7 +491,7 @@ impl AsyncDialer {
                     // verify if the PeerId matches expectation, otherwise,
                     // it is a bad outgoing connection
                     if peer_id == reported_pid {
-                        log::debug!("[Dialer] job {:?} succeeded, {:?}", peer_id, stream_muxer);
+                        log::debug!("[Dialer] job for {:?} succeeded, {:?}", peer_id, stream_muxer);
                         // return here, ignore the rest of jobs
                         return Ok(stream_muxer);
                     } else {
@@ -505,7 +505,7 @@ impl AsyncDialer {
                     }
                 }
                 Some((Err(err), addr)) => {
-                    log::debug!("[Dialer] job {:?} failed: addr={:?},error={:?}", peer_id, addr.clone(), err);
+                    log::debug!("[Dialer] job for {:?} failed: addr={:?},error={:?}", peer_id, addr.clone(), err);
                     if let SwarmError::Transport(_) = err {
                         // add to backoff list if transport error reported
                         param.backoff.add_peer(peer_id, addr).await;

@@ -1137,7 +1137,7 @@ impl Swarm {
 
     /// Handles outgoing connection error.
     fn handle_connection_error(&mut self, peer_id: PeerId, error: SwarmError, tid: TransactionId) -> Result<()> {
-        log::debug!("handle_connection_error: {:?} {:?} {:?}", peer_id, error, tid);
+        log::debug!("handle_connection_error: {:?} {:?} tid={:?}", peer_id, error, tid);
 
         //execute dial callback for post processing
         let callback = self.dial_transactions.remove(&tid).expect("no match tid found");
