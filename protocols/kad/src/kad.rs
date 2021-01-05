@@ -101,7 +101,6 @@ pub struct Kademlia<TStore> {
     /// The currently known addresses of the local node.
     ///
     /// The addresses come from Swarm when initializing Kademlia.
-    /// TODO: The addresses might change for some reason (f.g., interface up/down)
     local_addrs: Vec<Multiaddr>,
 
     /// The record storage.
@@ -1168,7 +1167,6 @@ where
 
     fn start_refresh_timer(&mut self) {
         // start timer task, which would generate ProtocolEvent::Timer to kad main loop
-        log::info!("starting refresh timer task...");
         let interval = self.check_kad_peer_interval;
         let now = Instant::now();
         let self_key = self.kbuckets.self_key().clone();
@@ -1340,6 +1338,12 @@ where
         }
     }
 
+    // handle a local address changes. Update the local_addrs and start a refresh immediately.
+    fn handle_address_changed(&mut self, addrs: Vec<Multiaddr>) {
+        self.local_addrs = addrs;
+        self.handle_refresh_stage(RefreshStage::Start);
+    }
+
     // handle a new Kad peer is found.
     fn handle_peer_found(&mut self, peer_id: PeerId, queried: bool) {
         self.try_add_peer(peer_id, queried);
@@ -1376,6 +1380,10 @@ where
             }
             Some(ProtocolEvent::PeerIdentified(peer_id)) => {
                 self.handle_peer_identified(peer_id);
+                Ok(())
+            }
+            Some(ProtocolEvent::AddressChanged(addrs)) => {
+                self.handle_address_changed(addrs);
                 Ok(())
             }
             Some(ProtocolEvent::KadPeerFound(peer_id, queried)) => {
@@ -1500,6 +1508,8 @@ where
                 if self.refreshing {
                     return;
                 }
+
+                log::debug!("start refreshing kbuckets...");
 
                 // always mark refreshing as true if we step into this stage
                 self.refreshing = true;

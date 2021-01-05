@@ -50,7 +50,7 @@
 
 use async_trait::async_trait;
 use libp2prs_core::upgrade::UpgradeInfo;
-use libp2prs_core::PeerId;
+use libp2prs_core::{PeerId, Multiaddr};
 use std::error::Error;
 
 use crate::connection::Connection;
@@ -59,12 +59,19 @@ use crate::ProtocolId;
 
 /// Notifiee is an trait for an object wishing to receive notifications from swarm.
 pub trait Notifiee {
-    /// called when a connection opened.
+    /// It is emitted when a connection is connected.
     fn connected(&mut self, _conn: &mut Connection) {}
-    /// called when a connection closed.
+    /// It is emitted when a connection is disconnected.
     fn disconnected(&mut self, _conn: &mut Connection) {}
-    /// called when finishing identifi a remote peer.
+    /// It is emitted when finishing identified a remote peer. Therefore,
+    /// the multiaddr and protocols of the remote peer can be retrieved
+    /// from the PeerStore.
     fn identified(&mut self, _peer: PeerId) {}
+    /// It is emitted when the listen addresses for the local host changes.
+    /// This might happen for some reasons, f.g., interface up/down.
+    ///
+    /// The notification contains a snapshot of the current listen addresses.
+    fn address_changed(&mut self, _addrs: Vec<Multiaddr>) {}
 }
 
 /// Common trait for upgrades that can be applied on inbound substreams, outbound substreams,

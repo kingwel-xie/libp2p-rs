@@ -255,6 +255,12 @@ impl Notifiee for KadProtocolHandler {
             let _ = tx.post(ProtocolEvent::PeerIdentified(peer_id)).await;
         });
     }
+    fn address_changed(&mut self, addrs: Vec<Multiaddr>) {
+        let mut tx = self.poster.clone();
+        task::spawn(async move {
+            let _ = tx.post(ProtocolEvent::AddressChanged(addrs)).await;
+        });
+    }
 }
 
 #[async_trait]
@@ -873,6 +879,14 @@ pub(crate) enum ProtocolEvent {
     ///
     /// This notification comes from Protocol Notifiee trait.
     PeerIdentified(PeerId),
+    /// The local address change is detected.
+    ///
+    /// In fact the local address might change for many reasons. f.g.,
+    /// interface up/down. When our address changes, we should proactively
+    /// tell our closest peers about it so we become discoverable quickly.
+    ///
+    /// This notification comes from Protocol Notifiee trait.
+    AddressChanged(Vec<Multiaddr>),
 
     /// A new peer found when trying to query a 'Key' or receiving a
     /// query from peer, which obviously implies we are talking to an
