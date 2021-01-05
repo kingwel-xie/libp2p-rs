@@ -31,10 +31,14 @@ pub fn dht_cli_commands<'a>() -> Command<'a> {
         .action(get_value);
 
     let dump_messenger_cmd = Command::new("dump").about("Dump KBuckets").usage("dump").action(cli_dump_kbuckets);
-    let dump_dht_cmd = Command::new("messenger")
+    let dump_kbucket_cmd = Command::new("messenger")
         .about("Dump Messengers")
         .usage("messengers")
         .action(cli_dump_messengers);
+    let dump_stats_cmd = Command::new("stats")
+        .about("Dump Stats")
+        .usage("dump stats")
+        .action(cli_dump_statistics);
 
     Command::new("dht")
         .about("find peer or record through dht")
@@ -42,8 +46,9 @@ pub fn dht_cli_commands<'a>() -> Command<'a> {
         .subcommand(bootstrap_cmd)
         .subcommand(add_node_cmd)
         .subcommand(rm_node_cmd)
-        .subcommand(dump_dht_cmd)
+        .subcommand(dump_kbucket_cmd)
         .subcommand(dump_messenger_cmd)
+        .subcommand(dump_stats_cmd)
         .subcommand(find_peer_cmd)
         .subcommand(get_value_cmd)
 }
@@ -120,6 +125,20 @@ fn cli_dump_kbuckets(app: &App, args: &[&str]) -> XcliResult {
                 }
             }
         }
+    });
+
+    Ok(CmdExeCode::Ok)
+}
+
+fn cli_dump_statistics(app: &App, _args: &[&str]) -> XcliResult {
+    let mut kad = handler(app);
+
+    task::block_on(async {
+        let stats = kad.dump_statistics().await;
+        println!("Total refreshes : {}", stats.total_refreshes);
+        println!("Total queries   : {}", stats.total_queries);
+        println!("Query details   : {:?}", stats.query);
+        println!("Kad rx messages : {:?}", stats.message_rx);
     });
 
     Ok(CmdExeCode::Ok)

@@ -888,8 +888,8 @@ pub(crate) enum ProtocolEvent {
     /// notification from event bus(TBD).
     KadPeerStopped(PeerId),
 
-    /// The event to notify that iterative query has been finished.
-    IterativeQueryStats(QueryStats),
+    /// The event to notify that iterative query has been completed.
+    IterativeQueryCompleted(QueryStats),
 
     /// Timer event for Provider cleanup.
     ProviderCleanupTimer,

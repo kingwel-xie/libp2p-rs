@@ -125,14 +125,15 @@ pub struct Kademlia<TStore> {
 }
 
 /// The statistics of Kademlia.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct KademliaStats {
+    pub total_queries: usize,
+    pub total_refreshes: usize,
     pub query: QueryStats,
     pub message_rx: MessageStats,
-    pub message_tx: MessageStats,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MessageStats {
     pub(crate) ping: usize,
     pub(crate) find_node: usize,
@@ -877,6 +878,10 @@ where
         self.messengers.as_ref().expect("must be Some").messengers()
     }
 
+    fn dump_statistics(&mut self) -> KademliaStats {
+        self.stats.clone()
+    }
+
     fn dump_kbuckets(&mut self) -> Vec<KBucketView> {
         let swarm = self.swarm.as_ref().expect("must be Some");
         let connected = &self.connected_peers;
@@ -1349,6 +1354,11 @@ where
     // handle a Kad peer is dead.
     fn handle_query_stats(&mut self, stats: QueryStats) {
         log::info!("iterative query report : {:?}", stats);
+
+        // calculate the average duration...
+        let total = self.stats.query.duration * self.stats.total_queries as u32 + stats.duration;
+        self.stats.total_queries += 1;
+        self.stats.query.duration = total / self.stats.total_queries as u32;
         self.stats.query.merge(stats);
     }
 
@@ -1376,7 +1386,7 @@ where
                 self.handle_peer_stopped(peer_id);
                 Ok(())
             }
-            Some(ProtocolEvent::IterativeQueryStats(stats)) => {
+            Some(ProtocolEvent::IterativeQueryCompleted(stats)) => {
                 self.handle_query_stats(stats);
                 Ok(())
             }
@@ -1405,14 +1415,17 @@ where
 
         let response = match request {
             KadRequestMsg::Ping => {
+                self.stats.message_rx.ping += 1;
                 // respond with the request message
                 Ok(Some(KadResponseMsg::Pong))
             }
             KadRequestMsg::FindNode { key } => {
+                self.stats.message_rx.find_node += 1;
                 let closer_peers = self.find_closest(&kbucket::Key::new(key), &source);
                 Ok(Some(KadResponseMsg::FindNode { closer_peers }))
             }
             KadRequestMsg::AddProvider { key, provider } => {
+                self.stats.message_rx.add_provider += 1;
                 // Only accept a provider record from a legitimate peer.
                 if provider.node_id != source {
                     log::info!("received provider from wrong peer {:?}", source);
@@ -1424,6 +1437,7 @@ where
                 }
             }
             KadRequestMsg::GetProviders { key } => {
+                self.stats.message_rx.get_provider += 1;
                 let provider_peers = self.provider_peers(&key, Some(&source));
                 let closer_peers = self.find_closest(&kbucket::Key::new(key), &source);
                 Ok(Some(KadResponseMsg::GetProviders {
@@ -1432,6 +1446,7 @@ where
                 }))
             }
             KadRequestMsg::GetValue { key } => {
+                self.stats.message_rx.get_value += 1;
                 // Lookup the record locally.
                 let record = match self.store.get(&key) {
                     Some(record) => {
@@ -1448,7 +1463,10 @@ where
                 let closer_peers = self.find_closest(&kbucket::Key::new(key), &source);
                 Ok(Some(KadResponseMsg::GetValue { record, closer_peers }))
             }
-            KadRequestMsg::PutValue { record } => self.handle_put_record(source, record).map(Some),
+            KadRequestMsg::PutValue { record } => {
+                self.stats.message_rx.put_value += 1;
+                self.handle_put_record(source, record).map(Some)
+            },
         };
 
         let _ = reply.send(response);
@@ -1479,6 +1497,8 @@ where
     fn handle_refresh_stage(&mut self, stage: RefreshStage) {
         match stage {
             RefreshStage::Start => {
+                self.stats.total_refreshes += 1;
+
                 let local_id = self.kbuckets.self_key().preimage().clone();
                 let mut poster = self.poster();
 
@@ -1611,6 +1631,9 @@ where
             Some(ControlCommand::Dump(cmd)) => match cmd {
                 DumpCommand::Entries(reply) => {
                     let _ = reply.send(self.dump_kbuckets());
+                }
+                DumpCommand::Statistics(reply) => {
+                    let _ = reply.send(self.dump_statistics());
                 }
                 DumpCommand::Messengers(reply) => {
                     let _ = reply.send(self.dump_messengers());

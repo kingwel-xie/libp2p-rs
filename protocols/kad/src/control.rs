@@ -22,7 +22,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::SinkExt;
 use libp2prs_core::{Multiaddr, PeerId};
 
-use crate::kad::KBucketView;
+use crate::kad::{KBucketView, KademliaStats};
 use crate::protocol::{KadMessengerView, KadPeer};
 use crate::query::PeerRecord;
 use crate::{record, KadError};
@@ -60,6 +60,8 @@ pub(crate) enum ControlCommand {
 pub enum DumpCommand {
     /// Dump the Kad DHT kbuckets. Empty kbucket will be ignored.
     Entries(oneshot::Sender<Vec<KBucketView>>),
+    /// Dump the Kad statistics.
+    Statistics(oneshot::Sender<KademliaStats>),
     /// Dump the Kad Messengers.
     Messengers(oneshot::Sender<Vec<KadMessengerView>>),
 }
@@ -100,6 +102,15 @@ impl Control {
             .await
             .expect("control send dump::entries");
         rx.await.expect("dump::entries failed")
+    }
+
+    pub async fn dump_statistics(&mut self) -> KademliaStats {
+        let (tx, rx) = oneshot::channel();
+        self.control_sender
+            .send(ControlCommand::Dump(DumpCommand::Statistics(tx)))
+            .await
+            .expect("control send dump::statistics");
+        rx.await.expect("dump::statistics failed")
     }
 
     pub async fn dump_messengers(&mut self) -> Vec<KadMessengerView> {

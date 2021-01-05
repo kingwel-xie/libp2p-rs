@@ -761,10 +761,10 @@ impl IterativeQuery {
                 query_results.closest_peers = Some(peers);
             }
 
-            me.stats.duration = Instant::now() - start;
+            me.stats.duration = Instant::now().duration_since(start);
 
             // send the statistics back to the Kad main loop
-            let _ = me.poster.post(ProtocolEvent::IterativeQueryStats(me.stats)).await;
+            let _ = me.poster.post(ProtocolEvent::IterativeQueryCompleted(me.stats)).await;
 
             f(Ok(query_results));
         });
@@ -772,7 +772,7 @@ impl IterativeQuery {
 }
 
 /// Execution statistics of a query.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct QueryStats {
     pub(crate) requests: u32,
     pub(crate) success: u32,
@@ -818,13 +818,10 @@ impl QueryStats {
     /// e.g. to accumulate the global statistics.
     ///
     /// Counters are merged cumulatively.
-    pub fn merge(&mut self, other: QueryStats) -> Self {
-        QueryStats {
-            requests: self.requests + other.requests,
-            success: self.success + other.success,
-            failure: self.failure + other.failure,
-            duration: other.duration
-        }
+    pub fn merge(&mut self, other: QueryStats) {
+        self.requests += other.requests;
+        self.success += other.success;
+        self.failure += other.failure;
     }
 }
 
