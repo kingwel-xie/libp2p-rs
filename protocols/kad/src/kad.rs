@@ -60,8 +60,8 @@ pub struct Kademlia<TStore> {
     /// Configuration of the wire protocol.
     protocol_config: KademliaProtocolConfig,
 
-    /// Flag to indicate if bootstrapping has been triggered.
-    bootstrapped: bool,
+    /// Flag to indicate if refreshing is ongoing.
+    refreshing: bool,
 
     /// The config for queries.
     query_config: QueryConfig,
@@ -399,7 +399,7 @@ where
             control_rx,
             kbuckets: KBucketsTable::new(local_key),
             protocol_config: config.protocol_config,
-            bootstrapped: false,
+            refreshing: false,
             query_config: config.query_config,
             stats: Default::default(),
             messengers: None,
@@ -853,7 +853,7 @@ where
     ///
     /// > **Note**: Bootstrapping requires at least one node of the DHT to be known.
     async fn bootstrap(&mut self) {
-        if !self.bootstrapped {
+        if !self.refreshing {
             log::debug!("bootstrapping...");
             let mut poster = self.poster();
             let _ = poster.post(ProtocolEvent::Refresh(RefreshStage::Start)).await;
@@ -1497,6 +1497,13 @@ where
     fn handle_refresh_stage(&mut self, stage: RefreshStage) {
         match stage {
             RefreshStage::Start => {
+                if self.refreshing {
+                    return;
+                }
+
+                // always mark refreshing as true if we step into this stage
+                self.refreshing = true;
+                // and increase the counter
                 self.stats.total_refreshes += 1;
 
                 let local_id = self.kbuckets.self_key().preimage().clone();
@@ -1505,7 +1512,6 @@ where
                 self.get_closest_peers(local_id.into(), |r| {
                     if r.is_err() {
                         log::info!("refresh get_closest_peers failed: {:?}", r);
-                        return;
                     }
                     task::spawn(async move {
                         let _ = poster.post(ProtocolEvent::Refresh(RefreshStage::SelfQueryDone)).await;
@@ -1521,9 +1527,6 @@ where
                 //         println!("{:?} : {}", k.index(), k.num_entries());
                 //     }
                 // });
-
-                // always mark bootstrapped as true if we step into this stage
-                self.bootstrapped = true;
 
                 let self_key = self.kbuckets.self_key().clone();
                 // The lookup for the local key finished. To complete the bootstrap process,
@@ -1575,11 +1578,9 @@ where
             RefreshStage::Completed => {
                 log::debug!("kbuckets entries={}", self.kbuckets.num_entries());
                 log::info!("bootstrap: finished, start the refresh timer");
-                // self.kbuckets.iter().for_each(|k|{
-                //     if k.num_entries() > 0 {
-                //         println!("{:?} : {}", k.index(), k.num_entries());
-                //     }
-                // });
+
+                // reset the refreshing flag
+                self.refreshing = false;
                 self.start_refresh_timer();
             }
         }
@@ -1651,77 +1652,7 @@ fn exp_decrease(ttl: Duration, exp: u32) -> Duration {
     Duration::from_secs(ttl.as_secs().checked_shr(exp).unwrap_or(0))
 }
 
-//////////////////////////////////////////////////////////////////////////////
-// Events
-
-/// The events produced by the `Kademlia` behaviour.
-///
-/// See [`NetworkBehaviour::poll`].
-#[derive(Debug)]
-pub enum KademliaEvent {
-    /// The routing table has been updated with a new peer and / or
-    /// address, thereby possibly evicting another peer.
-    RoutingUpdated {
-        /// The ID of the peer that was added or updated.
-        peer: PeerId,
-        /// The ID of the peer that was evicted from the routing table to make
-        /// room for the new peer, if any.
-        old_peer: Option<PeerId>,
-    },
-
-    /// A peer has connected for whom no listen address is known.
-    ///
-    /// If the peer is to be added to the routing table, a known
-    /// listen address for the peer must be provided via [`Kademlia::add_address`].
-    UnroutablePeer { peer: PeerId },
-
-    /// A connection to a peer has been established for whom a listen address
-    /// is known but the peer has not been added to the routing table either
-    /// because [`KademliaBucketInserts::Manual`] is configured or because
-    /// the corresponding bucket is full.
-    ///
-    /// If the peer is to be included in the routing table, it must
-    /// must be explicitly added via [`Kademlia::add_address`], possibly after
-    /// removing another peer.
-    ///
-    /// See [`Kademlia::kbucket`] for insight into the contents of
-    /// the k-bucket of `peer`.
-    RoutablePeer { peer: PeerId, address: Multiaddr },
-
-    /// A connection to a peer has been established for whom a listen address
-    /// is known but the peer is only pending insertion into the routing table
-    /// if the least-recently disconnected peer is unresponsive, i.e. the peer
-    /// may not make it into the routing table.
-    ///
-    /// If the peer is to be unconditionally included in the routing table,
-    /// it should be explicitly added via [`Kademlia::add_address`] after
-    /// removing another peer.
-    ///
-    /// See [`Kademlia::kbucket`] for insight into the contents of
-    /// the k-bucket of `peer`.
-    PendingRoutablePeer { peer: PeerId, address: Multiaddr },
-}
-
-/// The possible outcomes of [`Kademlia::add_address`].
-pub enum RoutingUpdate {
-    /// The given peer and address has been added to the routing
-    /// table.
-    Success,
-    /// The peer and address is pending insertion into
-    /// the routing table, if a disconnected peer fails
-    /// to respond. If the given peer and address ends up
-    /// in the routing table, [`KademliaEvent::RoutingUpdated`]
-    /// is eventually emitted.
-    Pending,
-    /// The routing table update failed, either because the
-    /// corresponding bucket for the peer is full and the
-    /// pending slot(s) are occupied, or because the given
-    /// peer ID is deemed invalid (e.g. refers to the local
-    /// peer ID).
-    Failed,
-}
-
-///////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
 #[derive(Clone)]
 pub(crate) struct MessengerManager {
     swarm: SwarmControl,

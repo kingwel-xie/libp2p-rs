@@ -143,16 +143,6 @@ pub enum KadError {
     Upgrade,
     /// Error while bootstrapping Kademlia-DHT.
     Bootstrap,
-    /// Error while looking up closest peers.
-    GetClosestPeers,
-    /// Error while finding providers.
-    GetProviders,
-    /// Error while providing.
-    AddProvider,
-    /// Error while putting value.
-    PutRecord,
-    /// Error while getting value.
-    GetRecord,
 
     /// Internal error, e.g., mpsc::SendError
     Internal,
