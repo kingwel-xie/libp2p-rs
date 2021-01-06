@@ -1416,7 +1416,7 @@ where
 
     // Handles Kad request messages. ProtoBuf message decoded by handler.
     fn handle_kad_request(&mut self, request: KadRequestMsg, source: PeerId, reply: oneshot::Sender<Result<Option<KadResponseMsg>>>) {
-        log::debug!("handle Kad request message {:?} from {:}", request, source);
+        log::debug!("handle Kad request message from {:?}, {:?} ", source, request);
 
         // Obviously we found a Kad peer
         self.try_add_peer(source.clone(), true);
@@ -1424,7 +1424,7 @@ where
         let response = match request {
             KadRequestMsg::Ping => {
                 self.stats.message_rx.ping += 1;
-                // respond with the request message
+                // respond with the Pong message
                 Ok(Some(KadResponseMsg::Pong))
             }
             KadRequestMsg::FindNode { key } => {

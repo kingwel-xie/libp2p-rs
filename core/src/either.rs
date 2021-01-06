@@ -30,9 +30,10 @@ use futures::{
     io::{IoSlice, IoSliceMut},
     prelude::*,
 };
-use libp2prs_traits::{ReadEx, WriteEx};
+use libp2prs_traits::{ReadEx, WriteEx, SplitEx};
 use pin_project::pin_project;
 use std::{io, io::Error as IoError, pin::Pin, task::Context, task::Poll};
+use async_std::io::Error;
 
 #[pin_project(project = EitherOutputProj)]
 #[derive(Debug, Copy, Clone)]
@@ -138,6 +139,75 @@ where
         match self {
             EitherOutput::A(a) => WriteEx::close2(a).await,
             EitherOutput::B(b) => WriteEx::close2(b).await,
+        }
+    }
+}
+
+pub enum EitherReaderWriter<A, B> {
+    A(A),
+    B(B),
+}
+
+#[async_trait]
+impl<A, B> ReadEx for EitherReaderWriter<A, B>
+    where
+        A: ReadEx,
+        B: ReadEx,
+{
+    async fn read2(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        match self {
+            EitherReaderWriter::A(a) => a.read2(buf).await,
+            EitherReaderWriter::B(b) => b.read2(buf).await,
+        }
+    }
+}
+
+#[async_trait]
+impl<A, B> WriteEx for EitherReaderWriter<A, B>
+    where
+        A: WriteEx,
+        B: WriteEx,
+{
+    async fn write2(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        match self {
+            EitherReaderWriter::A(a) => a.write2(buf).await,
+            EitherReaderWriter::B(b) => b.write2(buf).await,
+        }
+    }
+
+    async fn flush2(&mut self) -> Result<(), Error> {
+        match self {
+            EitherReaderWriter::A(a) => a.flush2().await,
+            EitherReaderWriter::B(b) => b.flush2().await,
+        }
+    }
+
+    async fn close2(&mut self) -> Result<(), Error> {
+        match self {
+            EitherReaderWriter::A(a) => a.close2().await,
+            EitherReaderWriter::B(b) => b.close2().await,
+        }
+    }
+}
+
+impl<A, B> SplitEx for EitherOutput<A, B>
+    where
+        A: SplitEx,
+        B: SplitEx,
+{
+    type Reader = EitherReaderWriter<A::Reader, B::Reader>;
+    type Writer = EitherReaderWriter<A::Writer, B::Writer>;
+
+    fn split(self) -> (Self::Reader, Self::Writer) {
+        match self {
+            EitherOutput::A(a) => {
+                let (r, w) = a.split();
+                (EitherReaderWriter::A(r), EitherReaderWriter::A(w))
+            }
+            EitherOutput::B(b) => {
+                let (r, w) = b.split();
+                (EitherReaderWriter::B(r), EitherReaderWriter::B(w))
+            },
         }
     }
 }

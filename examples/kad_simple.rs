@@ -27,6 +27,7 @@ use libp2prs_core::transport::upgrade::TransportUpgrade;
 use libp2prs_core::upgrade::Selector;
 use libp2prs_core::{Multiaddr, PeerId};
 use libp2prs_mplex as mplex;
+use libp2prs_secio as secio;
 use libp2prs_noise::{Keypair, NoiseConfig, X25519Spec};
 use libp2prs_swarm::identify::IdentifyConfig;
 use libp2prs_swarm::Swarm;
@@ -80,7 +81,12 @@ fn run_server(bootstrap_peer: PeerId, bootstrap_addr: Multiaddr) {
     let listen_addr1: Multiaddr = "/ip4/0.0.0.0/tcp/8086".parse().unwrap();
 
     let dh = Keypair::<X25519Spec>::new().into_authentic(&keys).unwrap();
-    let sec = NoiseConfig::xx(dh, keys.clone());
+    let sec_noise = NoiseConfig::xx(dh, keys.clone());
+
+    let sec_secio = secio::Config::new(keys.clone());
+
+    let sec = Selector::new(sec_noise, sec_secio);
+
     let mux = Selector::new(yamux::Config::new(), mplex::Config::new());
     let tu = TransportUpgrade::new(TcpConfig::default(), mux, sec);
 
