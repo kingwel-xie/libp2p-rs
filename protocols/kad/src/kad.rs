@@ -545,7 +545,7 @@ where
         let key = kbucket::Key::new(peer.clone());
 
         log::debug!(
-            "trying to add a peer: {:?} {:?}, query={}",
+            "trying to add a peer: {:?} bucket-index={:?}, query={}",
             peer,
             self.kbuckets.bucket_index(&key),
             queried
@@ -594,7 +594,7 @@ where
     fn try_remove_peer(&mut self, peer: PeerId) -> Option<kbucket::EntryView<kbucket::Key<PeerId>, PeerInfo>> {
         let key = kbucket::Key::new(peer.clone());
 
-        log::debug!("trying to remove a peer: {:?} {:?}", peer, self.kbuckets.bucket_index(&key));
+        log::debug!("trying to remove a peer: {:?} bucket-index={:?}", peer, self.kbuckets.bucket_index(&key));
 
         match self.kbuckets.entry(&key) {
             kbucket::Entry::Present(entry) => Some(entry.remove()),
@@ -611,7 +611,7 @@ where
     fn try_deactivate_peer(&mut self, peer: PeerId) {
         let key = kbucket::Key::new(peer.clone());
 
-        log::debug!("trying to deactivate a peer: {:?} {:?}", peer, self.kbuckets.bucket_index(&key));
+        log::debug!("trying to deactivate a peer: {:?} bucket-index={:?}", peer, self.kbuckets.bucket_index(&key));
 
         match self.kbuckets.entry(&key) {
             kbucket::Entry::Present(mut entry) => entry.value().set_aliveness(None),
@@ -1555,6 +1555,7 @@ where
                         for _ in 0..16 {
                             let d = self_key.distance(&target);
                             if b.contains(&d) {
+                                log::trace!("random Id generated for bucket-index={:?}", d.ilog2());
                                 break;
                             }
                             target = kbucket::Key::new(PeerId::random());
