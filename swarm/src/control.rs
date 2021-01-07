@@ -263,7 +263,7 @@ impl Control {
     }
 
     /// Get multiaddr of a peer.
-    pub fn get_addrs(&self, peer_id: &PeerId) -> Option<SmallVec<[AddrBookRecord; 4]>> {
+    pub fn get_addrs(&self, peer_id: &PeerId) -> Option<Vec<AddrBookRecord>> {
         self.peer_store.get_addrs(peer_id)
     }
 
