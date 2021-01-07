@@ -126,7 +126,10 @@ where
         let socket = self.inner.accept().await?;
         let sec = self.sec.clone();
 
-        log::debug!("accept a new connection from {}, upgrading inbound security...", socket.remote_multiaddr());
+        log::debug!(
+            "accept a new connection from {}, upgrading inbound security...",
+            socket.remote_multiaddr()
+        );
         //futures_timer::Delay::new(Duration::from_secs(3)).await;
         let sec_socket = sec.select_inbound(socket).await?;
 
