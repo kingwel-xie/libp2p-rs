@@ -50,8 +50,11 @@ pub fn dht_cli_commands<'a>() -> Command<'a> {
         .usage("getvalue <key>")
         .action(get_value);
 
-    let dump_messenger_cmd = Command::new("dump").about("Dump KBuckets").usage("dump").action(cli_dump_kbuckets);
-    let dump_kbucket_cmd = Command::new("messenger")
+    let dump_kbucket_cmd = Command::new("dump")
+        .about("Dump KBuckets")
+        .usage("dump")
+        .action(cli_dump_kbuckets);
+    let dump_messenger_cmd = Command::new("messenger")
         .about("Dump Messengers")
         .usage("messengers")
         .action(cli_dump_messengers);

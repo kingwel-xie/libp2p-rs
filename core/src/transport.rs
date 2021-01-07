@@ -205,9 +205,8 @@ pub trait TransportListener: Send {
     /// The Listener handles the inbound connections
     async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError>;
 
-    /// Returns the local addresses being listened on. An address like 0.0.0.0 shall
-    /// be expanded to its all addresses on the network interface.
-    fn multi_addr(&self) -> Vec<Multiaddr>;
+    /// Returns the local addresses being listened on.
+    fn multi_addr(&self) -> Multiaddr;
 
     fn incoming(&mut self) -> Incoming<Self>
     where

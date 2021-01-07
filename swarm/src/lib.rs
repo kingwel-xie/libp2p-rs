@@ -131,7 +131,7 @@ pub enum SwarmEvent {
         /// The view of the opened substream.
         view: SubstreamView,
     },
-    /// An error happened on a connection during its initial handshake.
+    /// An error happened on accepting incoming connection.
     ///
     /// This can include, for example, an error during the handshake of the encryption layer, or
     /// the connection unexpectedly closed.
@@ -151,15 +151,15 @@ pub enum SwarmEvent {
         // The dial transaction id
         tid: TransactionId,
     },
-    /// One of our listeners has been added.
-    ListenAddrUp(Multiaddr),
-    /// One of our listeners has been deleted.
-    ListenAddrDown(Multiaddr),
+    /// One of our listeners has a new address added.
+    ListenAddressAdded(Multiaddr),
+    /// One of our listeners has an address deleted.
+    ListenAddressDeleted(Multiaddr),
     /// One of the listeners gracefully closed.
+    ///
+    /// Seems unlikely, as least in async-std
     ListenerClosed {
-        /// The addresses that the listener was listening on. These addresses are now considered
-        /// expired, similar to if a [`ExpiredListenAddr`](SwarmEvent::ExpiredListenAddr) event
-        /// has been generated for each of them.
+        /// The addresses that the listener was listening on.
         addresses: Vec<Multiaddr>,
         /// Reason for the closure. Contains `Ok(())` if the stream produced `None`, or `Err`
         /// if the stream produced an error.
@@ -412,10 +412,33 @@ impl Swarm {
         }
     }
 
+    // to kick off address change event to all protocol handlers
+    fn kickoff_address_change(&mut self) {
+        // kick off all protocol handlers for the Address Change
+        let own_addrs = self.get_self_addrs();
+        for handler in self.muxer.protocol_handlers.values_mut() {
+            handler.address_changed(own_addrs.clone());
+        }
+    }
+
     fn on_event(&mut self, event: SwarmEvent) -> Result<()> {
         log::trace!("Swarm event={:?}", event);
         match event {
             SwarmEvent::ListenerClosed { addresses: _, reason: _ } => {}
+            SwarmEvent::ListenAddressAdded (addr) => {
+                if !self.listened_addrs.contains(&addr) {
+                    log::info!("New address pushed {}", addr);
+                    self.listened_addrs.push(addr);
+                    self.kickoff_address_change();
+                }
+            }
+            SwarmEvent::ListenAddressDeleted (addr) => {
+                if let Some(pos) = self.listened_addrs.iter().position(|a|a == &addr) {
+                    log::info!("Old address popped {}", addr);
+                    self.listened_addrs.remove(pos);
+                    self.kickoff_address_change();
+                }
+            }
             SwarmEvent::ConnectionEstablished {
                 stream_muxer,
                 direction,
@@ -443,11 +466,6 @@ impl Swarm {
             }
             SwarmEvent::IdentifyResult { cid, result } => {
                 let _ = self.handle_identify_result(cid, result);
-            }
-
-            // TODO: handle other messages
-            e => {
-                log::warn!("TODO: unhandled swarm events {:?}", e);
             }
         }
 
@@ -730,7 +748,7 @@ impl Swarm {
         log::debug!("starting a listener on {:?}", addr);
         let mut transport = self.transports.lookup_by_addr(addr.clone())?;
         let mut listener = transport.listen_on(addr)?;
-        self.listened_addrs.extend(listener.multi_addr());
+        //self.listened_addrs.extend(listener.multi_addr());
 
         let mut tx = self.event_sender.clone();
         // start a task for this listener
@@ -740,10 +758,10 @@ impl Swarm {
                 let r = listener.accept().await;
                 match r {
                     Ok(ListenerEvent::AddressAdded(addr)) => {
-                        log::info!("New address detected {}", addr)
+                        let _ = tx.send(SwarmEvent::ListenAddressAdded(addr)).await;
                     }
                     Ok(ListenerEvent::AddressDeleted(addr)) => {
-                        log::info!("Address removal detected {}", addr)
+                        let _ = tx.send(SwarmEvent::ListenAddressDeleted(addr)).await;
                     }
                     Ok(ListenerEvent::Accepted(muxer)) => {
                         // don't have to verify if remote peer id matches its public key
@@ -860,12 +878,6 @@ impl Swarm {
     fn is_connected(&self, peer_id: &PeerId) -> bool {
         // TODO: check if the connection is being closed??
         self.connections_by_peer.get(peer_id).map_or(0, |v| v.len()) > 0
-    }
-
-    /// Returns an iterator that produces the list of addresses that other nodes can use to reach
-    /// us.
-    pub fn external_addresses(&self) -> impl Iterator<Item = &Multiaddr> {
-        self.external_addrs.iter()
     }
 
     /// Returns the peer ID of the swarm passed as parameter.

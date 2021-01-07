@@ -80,8 +80,8 @@ impl TransportListener for DummyListener {
         Err(TransportError::Internal)
     }
 
-    fn multi_addr(&self) -> Vec<Multiaddr> {
-        vec![]
+    fn multi_addr(&self) -> Multiaddr {
+        Multiaddr::empty()
     }
 }
 

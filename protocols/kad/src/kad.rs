@@ -1228,10 +1228,9 @@ where
         // well, self 'move' explicitly,
         let mut kad = self;
         task::spawn(async move {
-            // As we get Swarm control, try getting Swarm self addresses
-            let swarm = kad.swarm.as_mut().expect("must be Some");
-            kad.local_addrs = swarm.self_addrs().await.expect("listen addrs > 0");
-
+            // // As we get Swarm control, try getting Swarm self addresses
+            // let swarm = kad.swarm.as_mut().expect("must be Some");
+            // kad.local_addrs = swarm.self_addrs().await.expect("listen addrs > 0");
             let _ = kad.process_loop().await;
         });
     }
@@ -1340,6 +1339,7 @@ where
 
     // handle a local address changes. Update the local_addrs and start a refresh immediately.
     fn handle_address_changed(&mut self, addrs: Vec<Multiaddr>) {
+        log::debug!("address changed: {:?}", addrs);
         self.local_addrs = addrs;
         self.handle_refresh_stage(RefreshStage::Start);
     }

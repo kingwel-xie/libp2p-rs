@@ -78,13 +78,12 @@ lazy_static! {
 fn run_server(bootstrap_peer: PeerId, bootstrap_addr: Multiaddr) {
     let keys = SERVER_KEY.clone();
 
-    let listen_addr1: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
+    let listen_addr1: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
 
     let dh = Keypair::<X25519Spec>::new().into_authentic(&keys).unwrap();
+
     let sec_noise = NoiseConfig::xx(dh, keys.clone());
-
     let sec_secio = secio::Config::new(keys.clone());
-
     let sec = Selector::new(sec_noise, sec_secio);
 
     let mux = Selector::new(yamux::Config::new(), mplex::Config::new());

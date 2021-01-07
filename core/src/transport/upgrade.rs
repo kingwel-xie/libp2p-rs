@@ -153,7 +153,7 @@ where
         // let o = mux.select_inbound(sec_socket).await?;
     }
 
-    fn multi_addr(&self) -> Vec<Multiaddr> {
+    fn multi_addr(&self) -> Multiaddr {
         self.inner.multi_addr()
     }
 }

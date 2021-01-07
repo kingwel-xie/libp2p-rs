@@ -168,7 +168,7 @@ impl<TOutput: Send> TransportListener for TimeoutListener<TOutput> {
         // }
     }
 
-    fn multi_addr(&self) -> Vec<Multiaddr> {
+    fn multi_addr(&self) -> Multiaddr {
         self.inner.multi_addr()
     }
 }
