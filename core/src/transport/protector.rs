@@ -25,7 +25,7 @@
 //! the same key.
 
 use crate::pnet::{Pnet, PnetConfig, PnetOutput};
-use crate::transport::{ConnectionInfo, IListener, ITransport};
+use crate::transport::{ConnectionInfo, IListener, ITransport, ListenerEvent};
 use crate::{
     transport::{TransportError, TransportListener},
     Multiaddr, Transport,
@@ -93,9 +93,17 @@ where
 {
     type Output = PnetOutput<TOutput>;
 
-    async fn accept(&mut self) -> Result<Self::Output, TransportError> {
-        let stream = self.inner.accept().await?;
-        self.pnet.clone().handshake(stream).await.map_err(|e| e.into())
+    async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
+        let e = self.inner.accept().await?;
+        match e {
+            ListenerEvent::Accepted(o) => {
+                self.pnet.clone().handshake(o).await
+                    .map(|o| ListenerEvent::Accepted(o))
+                    .map_err(|e| e.into())
+            }
+            ListenerEvent::AddressAdded(a) => Ok(ListenerEvent::AddressAdded(a)),
+            ListenerEvent::AddressDeleted(a) => Ok(ListenerEvent::AddressDeleted(a)),
+        }
     }
 
     fn multi_addr(&self) -> Vec<Multiaddr> {

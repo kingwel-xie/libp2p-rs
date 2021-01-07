@@ -24,7 +24,7 @@
 
 use crate::muxing::{IStreamMuxer, StreamMuxer, StreamMuxerEx};
 use crate::secure_io::SecureInfo;
-use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener};
+use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener, ListenerEvent};
 use crate::upgrade::multistream::Multistream;
 use crate::upgrade::Upgrader;
 use crate::{transport::TransportError, Multiaddr, Transport};
@@ -122,22 +122,35 @@ where
 {
     type Output = IStreamMuxer;
 
-    async fn accept(&mut self) -> Result<Self::Output, TransportError> {
-        let socket = self.inner.accept().await?;
-        let sec = self.sec.clone();
+    async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
+        let r = self.inner.accept().await?;
+        match r {
+            ListenerEvent::Accepted(socket) => {
+                let sec = self.sec.clone();
+                log::debug!("accept a new connection from {}, upgrading inbound security...", socket.remote_multiaddr());
+                //futures_timer::Delay::new(Duration::from_secs(3)).await;
+                let sec_socket = sec.select_inbound(socket).await?;
 
-        log::debug!(
-            "accept a new connection from {}, upgrading inbound security...",
-            socket.remote_multiaddr()
-        );
-        //futures_timer::Delay::new(Duration::from_secs(3)).await;
-        let sec_socket = sec.select_inbound(socket).await?;
+                let mux = self.mux.clone();
+                log::debug!("security applied, upgrading inbound stream muxer...");
+                let o = mux.select_inbound(sec_socket).await?;
 
-        let mux = self.mux.clone();
+                Ok(ListenerEvent::Accepted(Box::new(o)))
+            }
+            ListenerEvent::AddressAdded(a) => Ok(ListenerEvent::AddressAdded(a)),
+            ListenerEvent::AddressDeleted(a) => Ok(ListenerEvent::AddressDeleted(a)),
+        }
 
-        log::debug!("security applied, upgrading inbound stream muxer...");
-        let o = mux.select_inbound(sec_socket).await?;
-        Ok(Box::new(o))
+        // let sec = self.sec.clone();
+        //
+        // log::debug!("accept a new connection from {}, upgrading inbound security...", socket.remote_multiaddr());
+        // //futures_timer::Delay::new(Duration::from_secs(3)).await;
+        // let sec_socket = sec.select_inbound(socket).await?;
+        //
+        // let mux = self.mux.clone();
+        //
+        // log::debug!("security applied, upgrading inbound stream muxer...");
+        // let o = mux.select_inbound(sec_socket).await?;
     }
 
     fn multi_addr(&self) -> Vec<Multiaddr> {

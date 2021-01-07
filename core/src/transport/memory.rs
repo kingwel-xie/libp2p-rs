@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 use rw_stream_sink::RwStreamSink;
 
 use crate::muxing::{IReadWrite, ReadWriteEx, StreamInfo};
-use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener};
+use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener, ListenerEvent};
 use crate::{transport::TransportError, Transport};
 // use libp2prs_traits::SplitEx;
 // use futures::io::{ReadHalf, WriteHalf};
@@ -159,8 +159,10 @@ pub struct Listener {
 impl TransportListener for Listener {
     type Output = Channel;
 
-    async fn accept(&mut self) -> Result<Self::Output, TransportError> {
-        self.receiver.next().await.ok_or(TransportError::Unreachable)
+    async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
+        self.receiver.next().await
+            .map(|o|ListenerEvent::Accepted(o))
+            .ok_or(TransportError::Unreachable)
     }
 
     fn multi_addr(&self) -> Vec<Multiaddr> {

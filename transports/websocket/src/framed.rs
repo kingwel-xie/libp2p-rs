@@ -25,7 +25,7 @@ use crate::{error::WsError, tls};
 use async_trait::async_trait;
 use either::Either;
 use futures::prelude::*;
-use libp2prs_core::transport::ConnectionInfo;
+use libp2prs_core::transport::{ConnectionInfo, ListenerEvent};
 use libp2prs_core::transport::{IListener, ITransport};
 use libp2prs_core::{
     either::AsyncEitherOutput,
@@ -48,7 +48,7 @@ const MAX_DATA_SIZE: usize = 256 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct WsConfig {
-    transport: ITransport<TcpTransStream>,
+    transport: ITransport<ListenerEvent<TcpTransStream>>,
     pub(crate) inner_config: InnerConfig,
 }
 
@@ -60,7 +60,7 @@ impl fmt::Debug for WsConfig {
 
 impl WsConfig {
     /// Create a new websocket transport based on another transport.
-    pub fn new(transport: ITransport<TcpTransStream>) -> Self {
+    pub fn new(transport: ITransport<ListenerEvent<TcpTransStream>>) -> Self {
         WsConfig {
             transport,
             inner_config: InnerConfig::new(),

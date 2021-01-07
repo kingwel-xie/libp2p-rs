@@ -24,7 +24,7 @@
 //! underlying `Transport`.
 // TODO: add example
 
-use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener};
+use crate::transport::{ConnectionInfo, IListener, ITransport, TransportListener, ListenerEvent};
 use crate::{transport::TransportError, Multiaddr, Transport};
 use async_trait::async_trait;
 use futures::future::{select, Either};
@@ -140,12 +140,12 @@ pub struct TimeoutListener<TOutput> {
 impl<TOutput: Send> TransportListener for TimeoutListener<TOutput> {
     type Output = TOutput;
 
-    async fn accept(&mut self) -> Result<Self::Output, TransportError> {
+    async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
         let output = select(self.inner.accept(), Delay::new(self.timeout)).await;
         match output {
-            Either::Left((stream, _)) => {
+            Either::Left((r, _)) => {
                 trace!("accepted first");
-                Ok(stream?)
+                r
             }
             Either::Right(_) => {
                 trace!("accept timeout first");

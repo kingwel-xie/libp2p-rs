@@ -32,10 +32,9 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_trait::async_trait;
 use futures::prelude::*;
-use futures_timer::Delay;
 use if_addrs::{get_if_addrs, IfAddr};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use libp2prs_core::transport::{ConnectionInfo, IListener, ITransport};
+use libp2prs_core::transport::{ConnectionInfo, IListener, ITransport, ListenerEvent};
 use libp2prs_core::{
     multiaddr::{protocol, protocol::Protocol, Multiaddr},
     transport::{TransportError, TransportListener},
@@ -49,16 +48,16 @@ use std::{
     net::{IpAddr, SocketAddr},
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
+use if_watch::{IfWatcher, IfEvent};
+use futures::future::Either;
+use futures::FutureExt;
 
 /// Represents the configuration for a TCP/IP transport capability for libp2p.
 ///
 #[cfg_attr(docsrs, doc(cfg(feature = $feature_name)))]
 #[derive(Debug, Clone, Default)]
 pub struct TcpConfig {
-    /// How long a listener should sleep after receiving an error, before trying again.
-    sleep_on_error: Duration,
     /// TTL to set for opened sockets, or `None` to keep default.
     ttl: Option<u32>,
     /// `TCP_NODELAY` to set for opened sockets, or `None` to keep default.
@@ -69,7 +68,6 @@ impl TcpConfig {
     /// Creates a new configuration object for TCP/IP.
     pub fn new() -> TcpConfig {
         TcpConfig {
-            sleep_on_error: Duration::from_millis(100),
             ttl: None,
             nodelay: None,
         }
@@ -113,30 +111,34 @@ impl Transport for TcpConfig {
 
         let listener = <TcpListener>::try_from(socket.into_tcp_listener()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
+        // retrieve the local address/port from Socket
+        // local address will remain unspecified if the socket_addr is unspecified
+        // but the port will be a random one which is picked by the OS kernel
+        // therefore we have to fetch the correct port...
+        // think about the case of "/ip4/0.0.0.0/tcp/0"
         let local_addr = listener.local_addr()?;
         let port = local_addr.port();
+
+        log::trace!("local {}", local_addr);
 
         // Determine all our listen addresses which is either a single local IP address
         // or (if a wildcard IP address was used) the addresses of all our interfaces,
         // as reported by `get_if_addrs`.
-        let listen_addrs = if socket_addr.ip().is_unspecified() {
+        let (unspecified, listen_addrs) = if socket_addr.ip().is_unspecified() {
             let addrs = host_addresses(port)?;
-
-            addrs.into_iter().map(|(_, _, ma)| ma).collect()
+            (true, addrs.into_iter().map(|(_, _, ma)| ma).collect())
         } else {
             let ma = ip_to_multiaddr(local_addr.ip(), port);
-            vec![ma]
+            (false, vec![ma])
         };
 
-        let ma = ip_to_multiaddr(local_addr.ip(), port);
-        log::debug!("Listening on {:?} expanded to {:?}", ma, listen_addrs);
+        log::debug!("Listening on {:?} expanded to {:?}", addr, listen_addrs);
 
         let listener = TcpTransListener {
             inner: listener,
-            pause: None,
-            pause_duration: self.sleep_on_error,
             port,
-            ma,
+            address_unspecified: unspecified,
+            watcher: None,
             listen_addrs,
             config: self.clone(),
         };
@@ -184,16 +186,15 @@ impl Transport for TcpConfig {
 #[derive(Debug)]
 pub struct TcpTransListener {
     inner: TcpListener,
-    /// The current pause if any.
-    pause: Option<Delay>,
-    /// How long to pause after an error.
-    pause_duration: Duration,
     /// The port which we use as our listen port in listener event addresses.
     port: u16,
-    /// The listened addresses.
-    ma: Multiaddr,
-    /// The listened interface addresses, which are the set of expanded address.
-    /// 0.0.0.0 => multiple interface addresses
+    /// If the listen address is unspecified.
+    address_unspecified: bool,
+    /// The interface watcher for address changes(interface up/down).
+    watcher: Option<IfWatcher>,
+    /// The listened interface addresses, which are the set of expanded addresses
+    /// if the original listen address is unspecified.
+    /// i.e., 0.0.0.0 => multiple interface addresses
     listen_addrs: Vec<Multiaddr>,
     /// Original configuration.
     config: TcpConfig,
@@ -202,14 +203,35 @@ pub struct TcpTransListener {
 #[async_trait]
 impl TransportListener for TcpTransListener {
     type Output = TcpTransStream;
-    async fn accept(&mut self) -> Result<Self::Output, TransportError> {
-        let (stream, sock_addr) = self.inner.accept().await?;
-        apply_config(&self.config, &stream)?;
+    async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
+        // at first time, we have to initialize the watcher
+        if self.watcher.is_none() && self.address_unspecified {
+            log::error!("initialize watcher");
+            self.watcher = Some(IfWatcher::new().await.expect("if-watch"));
+        }
 
-        let local_addr = stream.local_addr()?;
-        let la = ip_to_multiaddr(local_addr.ip(), local_addr.port());
-        let ra = ip_to_multiaddr(sock_addr.ip(), sock_addr.port());
-        Ok(TcpTransStream { inner: stream, la, ra })
+        log::error!("select watcher & accept");
+
+        let either = future::select(self.inner.accept().boxed(), self.watcher.as_mut().expect("").next().boxed()).await;
+        match either {
+            Either::Right((evt, _)) => {
+                log::error!("{:?}", evt);
+                let evt = evt?;
+                match evt {
+                    IfEvent::Up(ip) => Ok(ListenerEvent::AddressAdded(ip_to_multiaddr(ip.addr(), self.port))),
+                    IfEvent::Down(ip) => Ok(ListenerEvent::AddressDeleted(ip_to_multiaddr(ip.addr(), self.port))),
+                }
+            }
+            Either::Left((r, _)) => {
+                let (stream, sock_addr) = r?;
+                apply_config(&self.config, &stream)?;
+
+                let local_addr = stream.local_addr()?;
+                let la = ip_to_multiaddr(local_addr.ip(), local_addr.port());
+                let ra = ip_to_multiaddr(sock_addr.ip(), sock_addr.port());
+                Ok(ListenerEvent::Accepted(TcpTransStream { inner: stream, la, ra }))
+            }
+        }
     }
 
     fn multi_addr(&self) -> Vec<Multiaddr> {

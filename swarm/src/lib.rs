@@ -93,6 +93,7 @@ use crate::protocol_handler::IProtocolHandler;
 use crate::registry::Addresses;
 use crate::substream::{ConnectInfo, StreamId, Substream, SubstreamView};
 use libp2prs_core::translation::address_translation;
+use libp2prs_core::transport::ListenerEvent;
 
 type Result<T> = std::result::Result<T, SwarmError>;
 
@@ -738,7 +739,13 @@ impl Swarm {
             loop {
                 let r = listener.accept().await;
                 match r {
-                    Ok(muxer) => {
+                    Ok(ListenerEvent::AddressAdded(addr)) => {
+                        log::info!("New address detected {}", addr)
+                    }
+                    Ok(ListenerEvent::AddressDeleted(addr)) => {
+                        log::info!("Address removal detected {}", addr)
+                    }
+                    Ok(ListenerEvent::Accepted(muxer)) => {
                         // don't have to verify if remote peer id matches its public key
                         // always accept any incoming connection
                         // send muxer back to Swarm main task
@@ -854,56 +861,6 @@ impl Swarm {
         // TODO: check if the connection is being closed??
         self.connections_by_peer.get(peer_id).map_or(0, |v| v.len()) > 0
     }
-
-    /*
-        /// Tries to initiate a dialing attempt to the given peer.
-        ///
-        /// If a new dialing attempt has been initiated, `Ok(true)` is returned.
-        ///
-        /// If no new dialing attempt has been initiated, meaning there is an ongoing
-        /// dialing attempt or `addresses_of_peer` reports no addresses, `Ok(false)`
-        /// is returned.
-        pub fn dial(&mut self, peer_id: &PeerId) -> Result<(), SwarmError> {
-            let self_listening = &self.listened_addrs;
-            let mut addrs = self.behaviour.addresses_of_peer(peer_id)
-                .into_iter()
-                .filter(|a| !self_listening.contains(a));
-
-            let result =
-                if let Some(first) = addrs.next() {
-                    let handler = self.behaviour.new_handler().into_node_handler_builder();
-                    self.network.peer(peer_id.clone())
-                        .dial(first, addrs, handler)
-                        .map(|_| ())
-                        .map_err(SwarmError::ConnectionLimit)
-                } else {
-                    Err(SwarmError::NoAddresses)
-                };
-
-            if let Err(error) = &result {
-                log::debug!(
-                    "New dialing attempt to peer {:?} failed: {:?}.",
-                    peer_id, error);
-                self.behaviour.inject_dial_failure(&peer_id);
-            }
-
-            result
-        }
-        /// Returns an iterator that produces the list of addresses we're listening on.
-        pub fn listeners(&self) -> impl Iterator<Item = &Multiaddr> {
-            self.listeners.iter().flat_map(|l| l.addresses.iter())
-        }
-    */
-    /*
-        /// Set a handler for sub streams, with a protocol id
-        ///
-        /// , f: F)
-        //     where F: FnMut(TStreamMuxer
-    ::Substream
-        fn set_stream_handler<F>(&mut self, pid: TProto)
-        {
-            self.muxer.add_handler(pid, Box::new(f));
-        }*/
 
     /// Returns an iterator that produces the list of addresses that other nodes can use to reach
     /// us.
