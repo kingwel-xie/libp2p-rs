@@ -15,13 +15,10 @@ How to use the library?
 
 Code examples:
 
-- More details about how to write your code can be found in `examples`
-
-
-## Limitations
-
-As for the first stage, we'd like to limit our development scope to deliver the basic functionality equivalent to the basic-host in `go-libp2p`. There is a lone term plan to make a full package which includes the `routing` protocols as `go-libp2p` does. Therefore, the first release will not include any KAD-DHT, mDns and so on. Contributions are welcome to complete the `libp2p-rs` as a full functional libp2p package.     
-
+- Details about how to write your code can be found in `examples`
+    + swarm_simple demonstrates how to build transport and create sub-stream for communication
+    + kad_simple demonstrates how to run a Kad-DHT server. In this example, the interactive shell is integrated for debugging/observing Kad-DHT internal data structures
+    + ... 
 
 ## Releases
 
