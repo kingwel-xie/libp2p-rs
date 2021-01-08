@@ -78,7 +78,7 @@ lazy_static! {
 fn run_server(bootstrap_peer: PeerId, bootstrap_addr: Multiaddr) {
     let keys = SERVER_KEY.clone();
 
-    let listen_addr1: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
+    let listen_addr1: Multiaddr = "/ip4/0.0.0.0/tcp/8086".parse().unwrap();
 
     let dh = Keypair::<X25519Spec>::new().into_authentic(&keys).unwrap();
 

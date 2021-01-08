@@ -1339,8 +1339,9 @@ where
 
     // handle a local address changes. Update the local_addrs and start a refresh immediately.
     fn handle_address_changed(&mut self, addrs: Vec<Multiaddr>) {
-        log::debug!("address changed: {:?}", addrs);
+        log::debug!("address changed: {:?}, starting refresh...", addrs);
         self.local_addrs = addrs;
+        // TODO: probably we should start a timer to trigger refreshing, to avoid refreshing too often
         self.handle_refresh_stage(RefreshStage::Start);
     }
 

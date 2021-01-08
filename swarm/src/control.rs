@@ -24,7 +24,6 @@ use futures::{
 };
 use libp2prs_core::peerstore::{AddrBookRecord, PeerStore};
 use libp2prs_core::{Multiaddr, PeerId, ProtocolId, PublicKey};
-use smallvec::SmallVec;
 use std::sync::Arc;
 use std::time::Duration;
 

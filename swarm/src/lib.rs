@@ -430,14 +430,14 @@ impl Swarm {
             SwarmEvent::ListenerClosed { addresses: _, reason: _ } => {}
             SwarmEvent::ListenAddressAdded(addr) => {
                 if !self.listened_addrs.contains(&addr) {
-                    log::info!("New address pushed {}", addr);
+                    log::info!("New address added {}", addr);
                     self.listened_addrs.push(addr);
                     self.kickoff_address_change();
                 }
             }
-            SwarmEvent::ListenAddressDeleted(addr) => {
-                if let Some(pos) = self.listened_addrs.iter().position(|a| a == &addr) {
-                    log::info!("Old address popped {}", addr);
+            SwarmEvent::ListenAddressDeleted (addr) => {
+                if let Some(pos) = self.listened_addrs.iter().position(|a|a == &addr) {
+                    log::info!("Old address deleted {}", addr);
                     self.listened_addrs.remove(pos);
                     self.kickoff_address_change();
                 }
