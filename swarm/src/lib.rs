@@ -226,8 +226,10 @@ pub struct Swarm {
     /// The Transports.
     transports: Transports,
 
-    /// The local peer ID.
-    local_peer_id: PeerId,
+    /// The public key
+    public_key: PublicKey,
+    // /// The local peer ID.
+    // local_peer_id: PeerId,
 
     /// The next listener ID to assign.
     next_connection_id: usize,
@@ -282,7 +284,7 @@ impl Swarm {
         let (ctrl_tx, ctrl_rx) = mpsc::channel(0);
 
         let peer_store = PeerStore::default();
-        peer_store.add_key(&key.clone().into_peer_id(), key.clone());
+        // peer_store.add_key(&key.clone().into_peer_id(), key.clone());
 
         if let Err(e) = peer_store.load_data() {
             if e.kind() != std::io::ErrorKind::UnexpectedEof {
@@ -296,7 +298,8 @@ impl Swarm {
             peer_store,
             muxer: Muxer::new(),
             transports: Default::default(),
-            local_peer_id: key.into_peer_id(),
+            public_key: key,
+            // local_peer_id: key.into_peer_id(),
             // listeners: SmallVec::with_capacity(16),
             next_connection_id: 0,
             listened_addrs: Default::default(),
@@ -425,15 +428,15 @@ impl Swarm {
         log::trace!("Swarm event={:?}", event);
         match event {
             SwarmEvent::ListenerClosed { addresses: _, reason: _ } => {}
-            SwarmEvent::ListenAddressAdded (addr) => {
+            SwarmEvent::ListenAddressAdded(addr) => {
                 if !self.listened_addrs.contains(&addr) {
                     log::info!("New address pushed {}", addr);
                     self.listened_addrs.push(addr);
                     self.kickoff_address_change();
                 }
             }
-            SwarmEvent::ListenAddressDeleted (addr) => {
-                if let Some(pos) = self.listened_addrs.iter().position(|a|a == &addr) {
+            SwarmEvent::ListenAddressDeleted(addr) => {
+                if let Some(pos) = self.listened_addrs.iter().position(|a| a == &addr) {
                     log::info!("Old address popped {}", addr);
                     self.listened_addrs.remove(pos);
                     self.kickoff_address_change();
@@ -674,7 +677,7 @@ impl Swarm {
     }
     /// Returns network information about the `Swarm`.
     fn get_network_info(&self) -> NetworkInfo {
-        let id = self.local_peer_id.clone();
+        let id = self.local_peer_id().clone();
         let num_connections = self.connections_by_id.len();
         let num_peers = self.connections_by_peer.len();
         let num_active_streams = self.connections_by_id.iter().fold(0, |acc, (_k, v)| acc + v.num_streams());
@@ -880,9 +883,15 @@ impl Swarm {
         self.connections_by_peer.get(peer_id).map_or(0, |v| v.len()) > 0
     }
 
+    /// Returns an iterator that produces the list of addresses that other nodes can use to reach
+    /// us.
+    pub fn external_addresses(&self) -> impl Iterator<Item=&Multiaddr> {
+        self.external_addrs.iter()
+    }
+
     /// Returns the peer ID of the swarm passed as parameter.
     pub fn local_peer_id(&self) -> &PeerId {
-        &self.local_peer_id
+        &self.public_key.clone().into_peer_id()
     }
 
     /// Bans a peer by its peer ID.
@@ -932,7 +941,7 @@ impl Swarm {
         let metric = self.metric.clone();
 
         // add local pubkey to keybook
-        self.peer_store.add_key(&self.local_peer_id, stream_muxer.local_priv_key().public());
+        // self.peer_store.add_key(&self.local_peer_id, stream_muxer.local_priv_key().public());
 
         // clone the stream_muxer, and then wrap into Connection, task_handle will be assigned later
         let mut connection = Connection::new(
@@ -1170,7 +1179,7 @@ impl Swarm {
                     self.handle_observed_address(observed_addr, cid);
 
                     // Insert remote peer_id and public key into peerstore->KeyBook if non-exist
-                    self.peer_store.add_key(&peer_id, remote_pubkey);
+                    // self.peer_store.add_key(&peer_id, remote_pubkey);
 
                     // Note, we don't use connection.remote_addr(), because it might be a NATed address/port which
                     // changed very frequently. Instead, using info.listen_addrs is a better solution.
@@ -1182,8 +1191,11 @@ impl Swarm {
                         peer_id
                     );
                     // update peerstore with the listening addresses and protocols of the remote peer
-                    self.peer_store.add_addrs(&peer_id, info.listen_addrs, ADDRESS_TTL, false);
-                    self.peer_store.add_protocol(&peer_id, info.protocols);
+                    // self.peer_store.add_addrs(&peer_id, info.listen_addrs, ADDRESS_TTL, false);
+                    // self.peer_store.add_protocol(&peer_id, info.protocols);
+
+                    self.peer_store.insert_peer_info(&peer_id, remote_pubkey,
+                                                     info.listen_addrs, ADDRESS_TTL, false, info.protocols);
 
                     // TODO: to handle info.protocol_version .agent_version
 
@@ -1222,7 +1234,7 @@ impl Swarm {
     /// * `observed_addr` - should be an address a remote observes you as, which can be obtained for
     /// example with the identify protocol.
     ///
-    fn address_translation<'a>(&'a self, observed_addr: &'a Multiaddr) -> impl Iterator<Item = Multiaddr> + 'a {
+    fn address_translation<'a>(&'a self, observed_addr: &'a Multiaddr) -> impl Iterator<Item=Multiaddr> + 'a {
         let mut addrs: Vec<_> = self
             .listened_addrs
             .iter()

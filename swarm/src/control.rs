@@ -248,10 +248,10 @@ impl Control {
         Ok(())
     }
 
-    /// Insert a public key, indexed by peer_id.
-    pub fn add_key(&self, peer_id: &PeerId, key: PublicKey) {
-        self.peer_store.add_key(peer_id, key)
-    }
+    // /// Insert a public key, indexed by peer_id.
+    // pub fn add_key(&self, peer_id: &PeerId, key: PublicKey) {
+    //     self.peer_store.add_key(peer_id, key)
+    // }
     /// Delete public key by peer_id.
     pub fn del_key(&self, peer_id: &PeerId) {
         self.peer_store.del_key(peer_id);

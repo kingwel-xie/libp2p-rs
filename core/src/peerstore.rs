@@ -43,7 +43,7 @@ pub const GC_PURGE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Default, Clone)]
 pub struct PeerStore {
-    inner: Arc<Mutex<HashMap<PeerId, PeerRecord>>>,
+    inner: Arc<Mutex<HashMap<PeerId, PeerInfo>>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,7 +54,7 @@ pub struct PeerSaved {
 }
 
 #[derive(Clone)]
-pub struct PeerRecord {
+pub struct PeerInfo {
     addr: Vec<AddrBookRecord>,
     key: Option<PublicKey>,
     proto: HashSet<String>,
@@ -79,6 +79,35 @@ pub struct AddrBookRecord {
 }
 
 impl PeerStore {
+    pub fn insert_peer_info(&self, peer_id: &PeerId, key: PublicKey, addr: Vec<Multiaddr>,
+                            ttl: Duration, is_kad: bool, proto: Vec<String>) -> Option<PeerInfo> {
+        let mut guard = self.inner.lock().unwrap();
+
+        let mut proto_list = HashSet::new();
+        for item in proto {
+            proto_list.insert(item);
+        }
+
+        let mut addr_list = vec![];
+
+        for a in addr {
+            addr_list.push(AddrBookRecord {
+                addr: a,
+                addr_type: if is_kad { KAD } else { OTHER },
+                ttl,
+                expiry: if is_kad { None } else { Instant::now().checked_add(ttl) },
+            });
+        };
+
+        let info = PeerInfo {
+            addr: addr_list,
+            key: Some(key),
+            proto: proto_list,
+        };
+
+        guard.insert(peer_id.clone(), info)
+    }
+
     /// Save addr_book when closing swarm
     pub fn save_data(&self) -> io::Result<()> {
         let mut ds_addr_book = HashMap::new();
@@ -143,7 +172,7 @@ impl PeerStore {
                     expiry: Instant::now().checked_add(item.ttl),
                 })
             }
-            guard.insert(peer_id, PeerRecord {
+            guard.insert(peer_id, PeerInfo {
                 addr: v,
                 key: None,
                 proto: Default::default(),
@@ -154,24 +183,25 @@ impl PeerStore {
         Ok(())
     }
 
-    /// Insert a public key, indexed by peer_id.
-    pub fn add_key(&self, peer_id: &PeerId, key: PublicKey) {
-        let mut guard = self.inner.lock().unwrap();
-        // Replace a new key if exists.
-        // Otherwise, insert while peer_id cannot be found.
-        match guard.get_mut(peer_id) {
-            Some(pr) => {
-                pr.key = Some(key);
-            }
-            None => {
-                guard.insert(peer_id.clone(), PeerRecord {
-                    addr: vec![],
-                    key: Some(key),
-                    proto: Default::default(),
-                });
-            }
-        }
-    }
+    // /// Insert a public key, indexed by peer_id.
+    // pub fn add_key(&self, peer_id: &PeerId, key: PublicKey) {
+    //     let mut guard = self.inner.lock().unwrap();
+    //     // Replace a new key if exists.
+    //     // Otherwise, insert while peer_id cannot be found.
+    //     match guard.get_mut(peer_id) {
+    //         Some(pr) => {
+    //             pr.key = Some(key);
+    //         }
+    //         None => {
+    //             guard.insert(peer_id.clone(), PeerInfo {
+    //                 addr: vec![],
+    //                 key: Some(key),
+    //                 proto: Default::default(),
+    //             });
+    //         }
+    //     }
+    // }
+
     /// Delete public key by peer_id.
     pub fn del_key(&self, peer_id: &PeerId) {
         let mut guard = self.inner.lock().unwrap();
@@ -184,13 +214,14 @@ impl PeerStore {
     /// Get public key by peer_id.
     pub fn get_key(&self, peer_id: &PeerId) -> Option<PublicKey> {
         let guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let pr = guard.get(peer_id);
-            if pr.is_some() {
-                return pr.unwrap().clone().key;
+        match guard.get(peer_id) {
+            Some(pr) => {
+                return pr.clone().key;
+            }
+            None => {
+                None
             }
         }
-        None
     }
 
     /// Get all peer Ids in peer store.
@@ -205,46 +236,48 @@ impl PeerStore {
         let addr_type = if is_kad { KAD } else { OTHER };
         let expiry = if is_kad { None } else { Instant::now().checked_add(ttl) };
         // if hash contains peer_id
-        if guard.contains_key(peer_id) {
-            let mut exist = false;
-            let peer_record = guard.get_mut(peer_id).unwrap();
-            for (index, item) in peer_record.addr.iter().enumerate() {
-                if item.addr == addr {
-                    // addr is exist, update ttl & expiry(if necessary)
-                    let record: &mut AddrBookRecord = peer_record.addr.get_mut(index).unwrap();
-                    if is_kad {
-                        // Update addr to KAD addr.
-                        record.set_type(KAD);
-                        record.set_expiry(None);
-                    } else {
-                        record.set_expiry(expiry);
+        match guard.get_mut(peer_id) {
+            Some(peer_info) => {
+                let mut exist = false;
+                for (index, item) in peer_info.addr.iter().enumerate() {
+                    if item.addr == addr {
+                        // addr is exist, update ttl & expiry(if necessary)
+                        let record: &mut AddrBookRecord = peer_info.addr.get_mut(index).unwrap();
+                        if is_kad {
+                            // Update addr to KAD addr.
+                            record.set_type(KAD);
+                            record.set_expiry(None);
+                        } else {
+                            record.set_expiry(expiry);
+                        }
+                        exist = true;
+                        break;
                     }
-                    exist = true;
-                    break;
+                }
+                // If not exists, insert an address into vector.
+                if !exist {
+                    peer_info.addr.push(AddrBookRecord {
+                        addr,
+                        addr_type,
+                        ttl,
+                        expiry,
+                    });
                 }
             }
-            // If not exists, insert an address into vector.
-            if !exist {
-                peer_record.addr.push(AddrBookRecord {
+            None => {
+                // Peer_id non-exists, create a new PeerInfo and fill with a new AddrBookRecord.
+                let vec = vec![AddrBookRecord {
                     addr,
                     addr_type,
                     ttl,
                     expiry,
+                }];
+                guard.insert(peer_id.clone(), PeerInfo {
+                    addr: vec,
+                    key: None,
+                    proto: Default::default(),
                 });
             }
-        } else {
-            // Peer_id non-exists, create a new PeerRecord and fill with a new AddrBookRecord.
-            let vec = vec![AddrBookRecord {
-                addr,
-                addr_type,
-                ttl,
-                expiry,
-            }];
-            guard.insert(peer_id.clone(), PeerRecord {
-                addr: vec,
-                key: None,
-                proto: Default::default(),
-            });
         }
     }
 
@@ -258,53 +291,65 @@ impl PeerStore {
     /// Delete all multiaddr of a peer from address book.
     pub fn clear_addrs(&self, peer_id: &PeerId) {
         let mut guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            guard.get_mut(peer_id).unwrap().addr = vec![];
+        match guard.get_mut(peer_id) {
+            Some(pr) => {
+                pr.addr = vec![];
+            }
+            _ => {}
         }
     }
 
     /// Retrieve the record from the address book.
     pub fn get_addrs(&self, peer_id: &PeerId) -> Option<Vec<AddrBookRecord>> {
         let guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            return Some(guard.get(peer_id).unwrap().addr.clone());
+        match guard.get(peer_id) {
+            Some(pi) => {
+                return Some(pi.addr.clone());
+            }
+            None => {
+                None
+            }
         }
-        None
     }
 
     /// Update ttl if current_ttl equals old_ttl.
     pub fn update_addr(&self, peer_id: &PeerId, new_ttl: Duration) {
         let mut guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let v = guard.get_mut(peer_id).unwrap();
-            let time = Instant::now().checked_add(new_ttl);
-            for record in v.addr.iter_mut() {
-                if record.addr_type == KAD {
-                    continue;
+
+        match guard.get_mut(peer_id) {
+            Some(pi) => {
+                let time = Instant::now().checked_add(new_ttl);
+                for record in pi.addr.iter_mut() {
+                    if record.addr_type == KAD {
+                        continue;
+                    }
+                    record.expiry = time;
                 }
-                record.expiry = time;
             }
+            None => {}
         }
     }
 
     /// Get smallvec by peer_id and remove expired address
     pub fn remove_expired_addr(&self, peer_id: &PeerId) {
         let mut guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let record = guard.get_mut(peer_id).unwrap();
-            let iter_vec = record.addr.clone();
-            let mut remove_count = 0;
-            for (index, value) in iter_vec.iter().enumerate() {
-                if value.addr_type == KAD {
-                    continue;
-                }
-                if value.expiry.map_or(PERMANENT_ADDR_TTL, |d| d.elapsed()) < GC_PURGE_INTERVAL {
-                    continue;
-                } else {
-                    record.addr.remove(index - remove_count);
-                    remove_count += 1;
+        match guard.get_mut(peer_id) {
+            Some(pi) => {
+                let iter_vec = pi.addr.clone();
+                let mut remove_count = 0;
+                for (index, value) in iter_vec.iter().enumerate() {
+                    if value.addr_type == KAD {
+                        continue;
+                    }
+                    if value.expiry.map_or(PERMANENT_ADDR_TTL, |d| d.elapsed()) < GC_PURGE_INTERVAL {
+                        continue;
+                    } else {
+                        pi.addr.remove(index - remove_count);
+                        remove_count += 1;
+                    }
                 }
             }
+            None => {}
         }
     }
 
@@ -321,7 +366,7 @@ impl PeerStore {
             for item in proto {
                 s.insert(item);
             }
-            guard.insert(peer_id.clone(), PeerRecord {
+            guard.insert(peer_id.clone(), PeerInfo {
                 addr: vec![],
                 key: None,
                 proto: s,
@@ -332,36 +377,43 @@ impl PeerStore {
     /// Remove support protocol by peer_id
     pub fn remove_protocol(&self, peer_id: &PeerId) {
         let mut guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let record = guard.get_mut(peer_id).unwrap();
-            record.proto = HashSet::new();
+        match guard.get_mut(peer_id) {
+            Some(pi) => {
+                pi.proto = HashSet::new();
+            }
+            None => {}
         }
     }
 
     /// Get supported protocol by peer_id.
     pub fn get_protocol(&self, peer_id: &PeerId) -> Option<Vec<String>> {
         let guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let record = guard.get(peer_id).unwrap();
-            let mut result = Vec::<String>::new();
-            for s in record.proto.iter() {
-                result.push(s.parse().unwrap())
+        match guard.get(peer_id) {
+            Some(pi) => {
+                let mut result = Vec::<String>::new();
+                for s in pi.proto.iter() {
+                    result.push(s.parse().unwrap())
+                }
+                return Some(result);
             }
-            return Some(result);
+            None => {
+                None
+            }
         }
-        None
     }
 
     /// Get the first protocol which is matched by the given protocols.
     pub fn first_supported_protocol(&self, peer_id: &PeerId, proto: Vec<String>) -> Option<String> {
         let guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let record = guard.get(peer_id).unwrap();
-            for item in record.proto.iter() {
-                if proto.contains(item) {
-                    return Some(item.parse().unwrap());
+        match guard.get(peer_id) {
+            Some(pi) => {
+                for item in pi.proto.iter() {
+                    if proto.contains(item) {
+                        return Some(item.parse().unwrap());
+                    }
                 }
             }
+            None => {}
         }
         None
     }
@@ -369,17 +421,20 @@ impl PeerStore {
     /// Search all protocols and return an option that matches by given proto param.
     pub fn support_protocols(&self, peer_id: &PeerId, proto: Vec<String>) -> Option<Vec<String>> {
         let guard = self.inner.lock().unwrap();
-        if guard.contains_key(peer_id) {
-            let record = guard.get(peer_id).unwrap();
-            let mut proto_list = Vec::new();
-            for item in proto {
-                if record.proto.contains(&item) {
-                    proto_list.push(item)
+        match guard.get(peer_id) {
+            Some(pi) => {
+                let mut proto_list = Vec::new();
+                for item in proto {
+                    if pi.proto.contains(&item) {
+                        proto_list.push(item)
+                    }
                 }
+                return Some(proto_list);
             }
-            return Some(proto_list);
+            None => {
+                None
+            }
         }
-        None
     }
 
     /// Remove timeout address
@@ -437,7 +492,7 @@ impl AddrBookRecord {
 
 #[cfg(test)]
 mod tests {
-    use crate::peerstore::{ PeerRecord, AddrBookRecord, AddrType, ADDRESS_TTL, PeerStore};
+    use crate::peerstore::{PeerInfo, AddrBookRecord, AddrType, ADDRESS_TTL, PeerStore};
     use crate::PeerId;
     use std::time::Duration;
     use crate::identity::Keypair;
@@ -450,7 +505,7 @@ mod tests {
         // let keypair = Keypair::generate_secp256k1();
         let peer_id = PeerId::random();
 
-        let pr = PeerRecord {
+        let pr = PeerInfo {
             addr: vec![AddrBookRecord {
                 addr: "/memory/123456".parse().unwrap(),
                 addr_type: AddrType::KAD,
@@ -482,16 +537,21 @@ mod tests {
         peerstore.clear_addrs(&peer_id);
         assert_eq!(peerstore.get_addrs(&peer_id).unwrap().len(), 0);
     }
-    
+
     #[test]
     fn proto_basic() {
         let keypair = Keypair::generate_secp256k1();
         let peer_id = PeerId::random();
 
-        let pr = PeerRecord {
+        let mut proto_list = HashSet::new();
+        for item in vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()] {
+            proto_list.insert(item);
+        }
+
+        let pr = PeerInfo {
             addr: vec![],
             key: Some(keypair.public()),
-            proto: HashSet::new(),
+            proto: proto_list,
         };
         let mut hashmap = HashMap::new();
         hashmap.insert(peer_id.clone(), pr);
@@ -520,6 +580,33 @@ mod tests {
             "/libp2p/yamux/1.0.0".to_string(),
         ];
         let support_protocol = peerstore.support_protocols(&peer_id, option_support_list);
+        assert_eq!(
+            support_protocol.unwrap(),
+            vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn peerstore_basic() {
+        let peer_id = PeerId::random();
+        let keypair = Keypair::generate_secp256k1();
+
+        let addr = vec!["/memory/123456".parse().unwrap(), "/memory/123456".parse().unwrap()];
+        let proto = vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()];
+
+        let ps = PeerStore::default();
+        ps.insert_peer_info(&peer_id, keypair.public(), addr, ADDRESS_TTL, false, proto);
+
+        let optional_list = vec!["/libp2p/noise/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()];
+        let protocol = ps.first_supported_protocol(&peer_id, optional_list);
+        assert_eq!(protocol.unwrap(), "/libp2p/yamux/1.0.0");
+
+        let option_support_list = vec![
+            "/libp2p/secio/1.0.0".to_string(),
+            "/libp2p/noise/1.0.0".to_string(),
+            "/libp2p/yamux/1.0.0".to_string(),
+        ];
+        let support_protocol = ps.support_protocols(&peer_id, option_support_list);
         assert_eq!(
             support_protocol.unwrap(),
             vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()]
