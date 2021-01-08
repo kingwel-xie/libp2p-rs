@@ -883,12 +883,6 @@ impl Swarm {
         self.connections_by_peer.get(peer_id).map_or(0, |v| v.len()) > 0
     }
 
-    /// Returns an iterator that produces the list of addresses that other nodes can use to reach
-    /// us.
-    pub fn external_addresses(&self) -> impl Iterator<Item=&Multiaddr> {
-        self.external_addrs.iter()
-    }
-
     /// Returns the peer ID of the swarm passed as parameter.
     pub fn local_peer_id(&self) -> &PeerId {
         &self.public_key.clone().into_peer_id()
