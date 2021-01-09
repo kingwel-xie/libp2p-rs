@@ -228,8 +228,8 @@ pub struct Swarm {
 
     /// The public key
     public_key: PublicKey,
-    // /// The local peer ID.
-    // local_peer_id: PeerId,
+    /// The local peer ID.
+    local_peer_id: PeerId,
 
     /// The next listener ID to assign.
     next_connection_id: usize,
@@ -298,9 +298,8 @@ impl Swarm {
             peer_store,
             muxer: Muxer::new(),
             transports: Default::default(),
-            public_key: key,
-            // local_peer_id: key.into_peer_id(),
-            // listeners: SmallVec::with_capacity(16),
+            public_key: key.clone(),
+            local_peer_id: key.into_peer_id(),
             next_connection_id: 0,
             listened_addrs: Default::default(),
             external_addrs: Default::default(),
@@ -696,7 +695,7 @@ impl Swarm {
     fn get_identify_info(&self) -> IdentifyInfo {
         let protocols = self.muxer.supported_protocols().into_iter().map(|p| p.to_string()).collect();
 
-        let public_key = self.peer_store.get_key(self.local_peer_id()).unwrap();
+        let public_key = self.public_key.clone();
         let listen_addrs = self.get_self_addrs();
 
         IdentifyInfo {
@@ -822,7 +821,7 @@ impl Swarm {
         // then check addrs, return error if none when DHT is not enabled
         let r = self.peer_store.get_addrs(&peer_id);
         let addrs = match r {
-            Some(l) if !l.is_empty() => dial::EitherDialAddr::Addresses(l.into_iter().map(|r| r.into_maddr()).collect()),
+            Some(l) if !l.is_empty() => dial::EitherDialAddr::Addresses(l.into()),
             _ => {
                 // if DHT is NOT enabled, reply with NoAddresses
                 if !use_dht
@@ -884,8 +883,13 @@ impl Swarm {
     }
 
     /// Returns the peer ID of the swarm passed as parameter.
+    pub fn local_pubkey(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    /// Returns the peer ID of the swarm passed as parameter.
     pub fn local_peer_id(&self) -> &PeerId {
-        &self.public_key.clone().into_peer_id()
+        &self.local_peer_id
     }
 
     /// Bans a peer by its peer ID.
@@ -1172,12 +1176,6 @@ impl Swarm {
 
                     self.handle_observed_address(observed_addr, cid);
 
-                    // Insert remote peer_id and public key into peerstore->KeyBook if non-exist
-                    // self.peer_store.add_key(&peer_id, remote_pubkey);
-
-                    // Note, we don't use connection.remote_addr(), because it might be a NATed address/port which
-                    // changed very frequently. Instead, using info.listen_addrs is a better solution.
-
                     log::debug!(
                         "identified peer addresses {:?} protocols {:?} for {}",
                         info.listen_addrs,
@@ -1185,11 +1183,10 @@ impl Swarm {
                         peer_id
                     );
                     // update peerstore with the listening addresses and protocols of the remote peer
-                    // self.peer_store.add_addrs(&peer_id, info.listen_addrs, ADDRESS_TTL, false);
-                    // self.peer_store.add_protocol(&peer_id, info.protocols);
-
-                    self.peer_store.insert_peer_info(&peer_id, remote_pubkey,
-                                                     info.listen_addrs, ADDRESS_TTL, false, info.protocols);
+                    // Note, we don't use connection.remote_addr(), because it might be a NATed address/port which
+                    // changed very frequently. Instead, using info.listen_addrs is a better solution.
+                    self.peer_store.add_peer(peer_id.clone(), remote_pubkey,
+                                             info.listen_addrs, ADDRESS_TTL, info.protocols);
 
                     // TODO: to handle info.protocol_version .agent_version
 
@@ -1209,7 +1206,7 @@ impl Swarm {
 
     // This is to be deleted later...
     pub fn peer_addrs_add(&mut self, peer_id: &PeerId, addr: Multiaddr, ttl: Duration) {
-        self.peer_store.add_addr(peer_id, addr, ttl, false);
+        self.peer_store.add_addr(peer_id, addr, ttl);
     }
 
     /// Call this function in order to know which address remotes should dial to

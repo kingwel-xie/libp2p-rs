@@ -861,7 +861,7 @@ where
 
     fn add_node(&mut self, peer: PeerId, addresses: Vec<Multiaddr>) {
         if let Some(s) = self.swarm.as_ref() {
-            s.add_addrs(&peer, addresses, ADDRESS_TTL, true)
+            s.add_addrs(&peer, addresses, ADDRESS_TTL)
         }
         self.try_add_peer(peer, false);
     }
@@ -897,7 +897,7 @@ where
                         let id = n.node.key.preimage().clone();
                         let aliveness = n.node.value.get_aliveness();
                         let connected = connected.contains(&id);
-                        let addresses = swarm.get_addrs_vec(&id).unwrap_or_else(Vec::new);
+                        let addresses = swarm.get_addrs(&id).unwrap_or_else(Vec::new);
                         KNodeView {
                             id,
                             aliveness,
@@ -990,7 +990,7 @@ where
                     } else {
                         KadConnectionType::NotConnected
                     };
-                    let multiaddrs = swarm.get_addrs_vec(&node_id).unwrap_or_default();
+                    let multiaddrs = swarm.get_addrs(&node_id).unwrap_or_default();
                     // Note: here might be a possibility that multiaddrs is empty, if the peerstore doesn't have
                     // the address info for some reason(BUG?). Therefore, we'll send out a Kad peer without addresses.
                     // Shall we or shall we not???
@@ -1030,7 +1030,7 @@ where
                     let multiaddrs = if &node_id == kbuckets.self_key().preimage() {
                         Some(local_addrs.clone())
                     } else {
-                        swarm.get_addrs_vec(&node_id)
+                        swarm.get_addrs(&node_id)
                     }
                     .unwrap_or_default();
 
@@ -1147,7 +1147,7 @@ where
             self.swarm
                 .as_ref()
                 .expect("must be Some")
-                .add_addrs(&provider.node_id, provider.multiaddrs, PROVIDER_ADDR_TTL, true);
+                .add_addrs(&provider.node_id, provider.multiaddrs, PROVIDER_ADDR_TTL);
 
             let record = ProviderRecord::new(key, provider.node_id, self.provider_record_ttl.map(|ttl| Instant::now() + ttl));
             if let Err(e) = self.store.add_provider(record) {

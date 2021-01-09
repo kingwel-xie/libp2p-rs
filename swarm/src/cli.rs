@@ -97,14 +97,14 @@ fn cli_show_peers(app: &App, args: &[&str]) -> XcliResult {
     };
 
     if let Some(peer) = pid {
-        let addrs = swarm.get_addrs_vec(&peer);
-        let protos = swarm.get_protocol(&peer);
+        let addrs = swarm.get_addrs(&peer);
+        let protos = swarm.get_protocols(&peer);
         println!("Addrs: {:?}\nProtocols: {:?}", addrs, protos);
     } else {
-        let peers = swarm.get_all_peers();
+        let peers = swarm.get_peers();
         println!("Remote-Peer-Id                                       Multiaddrs");
         peers.iter().for_each(|v| {
-            println!("{:52} {:?}", v, swarm.get_addrs_vec(v));
+            println!("{:52} {:?}", v, swarm.get_addrs(v));
         });
     }
     Ok(CmdExeCode::Ok)

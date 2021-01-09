@@ -508,7 +508,7 @@ impl IterativeQuery {
                 for peer in closer.iter() {
                     // kingwel, we filter out all loopback addresses
                     let addrs = peer.multiaddrs.iter().filter(|a| !a.is_loopback_addr()).cloned().collect();
-                    me.swarm.add_addrs(&peer.node_id, addrs, TEMP_ADDR_TTL, true);
+                    me.swarm.add_addrs(&peer.node_id, addrs, TEMP_ADDR_TTL);
                 }
 
                 closest_peers.add_peers(closer);
@@ -535,7 +535,7 @@ impl IterativeQuery {
                             // update the PeerStore for the multiaddr, add all multiaddr of Closer peers
                             // to PeerStore
                             for peer in provider.iter() {
-                                me.swarm.add_addrs(&peer.node_id, peer.multiaddrs.clone(), PROVIDER_ADDR_TTL, true);
+                                me.swarm.add_addrs(&peer.node_id, peer.multiaddrs.clone(), PROVIDER_ADDR_TTL);
                             }
 
                             if !provider.is_empty() {

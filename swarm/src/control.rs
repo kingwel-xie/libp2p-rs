@@ -22,7 +22,7 @@ use futures::{
     channel::{mpsc, oneshot},
     prelude::*,
 };
-use libp2prs_core::peerstore::{AddrBookRecord, PeerStore};
+use libp2prs_core::peerstore::PeerStore;
 use libp2prs_core::{Multiaddr, PeerId, ProtocolId, PublicKey};
 use std::sync::Arc;
 use std::time::Duration;
@@ -124,8 +124,8 @@ impl Control {
     }
 
     /// Get all peers in the AddrBook of Peerstore.
-    pub fn get_all_peers(&self) -> Vec<PeerId> {
-        self.peer_store.get_all_peers()
+    pub fn get_peers(&self) -> Vec<PeerId> {
+        self.peer_store.get_peers()
     }
 
     /// Get recv package count&bytes
@@ -247,77 +247,58 @@ impl Control {
         Ok(())
     }
 
-    // /// Insert a public key, indexed by peer_id.
-    // pub fn add_key(&self, peer_id: &PeerId, key: PublicKey) {
-    //     self.peer_store.add_key(peer_id, key)
-    // }
-    /// Delete public key by peer_id.
-    pub fn del_key(&self, peer_id: &PeerId) {
-        self.peer_store.del_key(peer_id);
-    }
-
-    /// Get public key by peer_id.
+    /// Gets the public key by peer_id.
     pub fn get_key(&self, peer_id: &PeerId) -> Option<PublicKey> {
         self.peer_store.get_key(peer_id)
     }
 
-    /// Get multiaddr of a peer.
-    pub fn get_addrs(&self, peer_id: &PeerId) -> Option<Vec<AddrBookRecord>> {
+    /// Gets all multiaddr of a peer.
+    pub fn get_addrs(&self, peer_id: &PeerId) -> Option<Vec<Multiaddr>> {
         self.peer_store.get_addrs(peer_id)
     }
 
-    /// Get multiaddr of a peer, in a Vec<>.
-    pub fn get_addrs_vec(&self, peer_id: &PeerId) -> Option<Vec<Multiaddr>> {
-        let r = self.peer_store.get_addrs(peer_id);
-        r.map(|r| r.into_iter().map(|r| r.into_maddr()).collect())
+    /// Adds a address to address_book by peer_id, if exists, update rtt.
+    pub fn add_addr(&self, peer_id: &PeerId, addr: Multiaddr, ttl: Duration) {
+        self.peer_store.add_addr(peer_id, addr, ttl)
     }
 
-    /// Add a address to address_book by peer_id, if exists, update rtt.
-    pub fn add_addr(&self, peer_id: &PeerId, addr: Multiaddr, ttl: Duration, is_kad: bool) {
-        self.peer_store.add_addr(peer_id, addr, ttl, is_kad)
+    /// Adds many new addresses if they're not already in the peer store.
+    pub fn add_addrs(&self, peer_id: &PeerId, addrs: Vec<Multiaddr>, ttl: Duration) {
+        self.peer_store.add_addrs(peer_id, addrs, ttl)
     }
 
-    /// Add many new addresses if they're not already in the Address Book.
-    pub fn add_addrs(&self, peer_id: &PeerId, addrs: Vec<Multiaddr>, ttl: Duration, is_kad: bool) {
-        self.peer_store.add_addrs(peer_id, addrs, ttl, is_kad)
-    }
-
-    /// Delete all multiaddr of a peer from address book.
+    /// Clears all multiaddr of a peer from the peer store.
     pub fn clear_addrs(&self, peer_id: &PeerId) {
         self.peer_store.clear_addrs(peer_id)
     }
 
-    /// Update ttl if current_ttl equals old_ttl.
+    /// Updates ttl.
     pub fn update_addr(&self, peer_id: &PeerId, new_ttl: Duration) {
         self.peer_store.update_addr(peer_id, new_ttl)
     }
-    /// Get smallvec by peer_id and remove expired address
-    pub fn remove_expired_addr(&self, peer_id: &PeerId) {
-        self.peer_store.remove_expired_addr(peer_id)
+
+    /// Adds the protocols by peer_id.
+    pub fn add_protocols(&self, peer_id: &PeerId, protos: Vec<String>) {
+        self.peer_store.add_protocols(peer_id, protos);
     }
 
-    /// Insert supported protocol by peer_id
-    pub fn add_protocol(&self, peer_id: &PeerId, proto: Vec<String>) {
-        self.peer_store.add_protocol(peer_id, proto);
+    /// Removes the protocols by peer_id.
+    pub fn clear_protocols(&self, peer_id: &PeerId) {
+        self.peer_store.clear_protocols(peer_id);
     }
 
-    /// Remove support protocol by peer_id
-    pub fn remove_protocol(&self, peer_id: &PeerId) {
-        self.peer_store.remove_protocol(peer_id);
+    /// Gets the protocols supported by the specified PeerId.
+    pub fn get_protocols(&self, peer_id: &PeerId) -> Option<Vec<String>> {
+        self.peer_store.get_protocols(peer_id)
     }
 
-    /// Get the protocols supported by the specified PeerId.
-    pub fn get_protocol(&self, peer_id: &PeerId) -> Option<Vec<String>> {
-        self.peer_store.get_protocol(peer_id)
+    /// Tests if the PeerId supports the given protocols.
+    pub fn first_supported_protocol(&self, peer_id: &PeerId, protos: Vec<String>) -> Option<String> {
+        self.peer_store.first_supported_protocol(peer_id, protos)
     }
 
-    /// Test if the PeerId supports the given protocols.
-    pub fn first_supported_protocol(&self, peer_id: &PeerId, proto: Vec<String>) -> Option<String> {
-        self.peer_store.first_supported_protocol(peer_id, proto)
-    }
-
-    /// Search all protocols and return an option that matches by given proto param
-    fn support_protocols(&self, peer_id: &PeerId, proto: Vec<String>) -> Option<Vec<String>> {
-        self.peer_store.support_protocols(peer_id, proto)
+    /// Searches all protocols and return an option that matches by given protocols.
+    fn support_protocols(&self, peer_id: &PeerId, protos: Vec<String>) -> Option<Vec<String>> {
+        self.peer_store.support_protocols(peer_id, protos)
     }
 }
