@@ -347,13 +347,13 @@ impl AddrBookRecord {
 
 #[cfg(test)]
 mod tests {
-    use crate::peerstore::{PeerRecord, AddrBookRecord, AddrType, ADDRESS_TTL, PeerStore};
+    use crate::peerstore::{PeerRecord, AddrBookRecord, ADDRESS_TTL, PeerStore};
     use crate::PeerId;
     use std::time::Duration;
     use crate::identity::Keypair;
-    use wasm_timer::Instant;
     use std::collections::{HashSet, HashMap};
     use std::sync::{Arc, Mutex};
+    use libp2prs_multiaddr::Multiaddr;
 
     #[test]
     fn addr_basic() {
@@ -369,18 +369,18 @@ mod tests {
         hashmap.insert(peer_id.clone(), pr);
         let peerstore = PeerStore { inner: Arc::new(Mutex::new(hashmap)) };
 
-        peerstore.add_addr(&peer_id, "/memory/123456".parse().unwrap(), Duration::from_secs(1), false);
+        peerstore.add_addr(&peer_id, "/memory/123456".parse().unwrap(), Duration::from_secs(1));
 
         assert_eq!(
-            &(peerstore.get_addrs(&peer_id).unwrap().first().unwrap().addr),
-            &"/memory/123456".parse().unwrap()
+            peerstore.get_addrs(&peer_id).unwrap().first().unwrap(),
+            &"/memory/123456".parse::<Multiaddr>().unwrap()
         );
 
-        peerstore.add_addr(&peer_id, "/memory/654321".parse().unwrap(), Duration::from_secs(1), false);
+        peerstore.add_addr(&peer_id, "/memory/654321".parse().unwrap(), Duration::from_secs(1));
         let addrs = peerstore.get_addrs(&peer_id).unwrap();
         assert_eq!(addrs.len(), 2);
 
-        peerstore.add_addr(&peer_id, "/memory/654321".parse().unwrap(), Duration::from_secs(1), false);
+        peerstore.add_addr(&peer_id, "/memory/654321".parse().unwrap(), Duration::from_secs(1));
         let addrs = peerstore.get_addrs(&peer_id).unwrap();
         assert_eq!(addrs.len(), 2);
 
@@ -398,7 +398,7 @@ mod tests {
             proto_list.insert(item);
         }
 
-        let pr = PeerRecord(vec![], Some(keypair.public()), proto_list);
+        let pr = PeerRecord::new(vec![], Some(keypair.public()), proto_list);
         let mut hashmap = HashMap::new();
         hashmap.insert(peer_id.clone(), pr);
         let peerstore = PeerStore { inner: Arc::new(Mutex::new(hashmap)) };
@@ -406,7 +406,8 @@ mod tests {
         let proto_list = vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()];
         peerstore.add_protocols(&peer_id, proto_list.clone());
 
-        let p = peerstore.get_protocol(&peer_id).unwrap();
+        let p = peerstore.get_protocols(&peer_id).unwrap();
+        // let p = peerstore.get_protocol(&peer_id).unwrap();
 
         for i in proto_list {
             if p.contains(&i) {
@@ -441,7 +442,7 @@ mod tests {
         let proto = vec!["/libp2p/secio/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()];
 
         let ps = PeerStore::default();
-        ps.add_peer(peer_id, keypair.public(), addr, ADDRESS_TTL, proto);
+        ps.add_peer(peer_id.clone(), keypair.public(), addr, ADDRESS_TTL, proto);
 
         let optional_list = vec!["/libp2p/noise/1.0.0".to_string(), "/libp2p/yamux/1.0.0".to_string()];
         let protocol = ps.first_supported_protocol(&peer_id, optional_list);

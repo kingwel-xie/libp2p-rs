@@ -216,6 +216,15 @@ pub trait TransportListener: Send {
     }
     // /// Returns the local network address
     // fn local_addr(&self) -> io::Result<SocketAddr>;
+
+    /// The Listener handles the inbound connections
+    async fn accept_output(&mut self) -> Result<Self::Output, TransportError> {
+        loop {
+            if let ListenerEvent::Accepted(o) = self.accept().await? {
+                break Ok(o);
+            }
+        }
+    }
 }
 
 /// Trait object for `TransportListener`

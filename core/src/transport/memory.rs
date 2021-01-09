@@ -366,7 +366,7 @@ mod tests {
         let listener = async move {
             let mut listener = t1.listen_on(t1_addr.clone()).unwrap();
 
-            let mut socket = listener.accept().await.unwrap();
+            let mut socket = listener.accept_output().await.unwrap();
 
             let mut buf = [0; 3];
             socket.read_exact2(&mut buf).await.unwrap();
