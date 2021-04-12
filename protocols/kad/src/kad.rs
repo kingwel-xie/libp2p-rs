@@ -1368,8 +1368,12 @@ impl<TStore> Kademlia<TStore>
     fn handle_kad_request(&mut self, request: KadRequestMsg, source: PeerId, reply: oneshot::Sender<Result<Option<KadResponseMsg>>>) {
         log::debug!("handle Kad request message from {:?}, {:?} ", source, request);
 
-        // Obviously we found a Kad peer
-        self.try_add_peer(source, true, false);
+        // 2021.4.12 don't add to RT at this moment, since this node might be running
+        // as a Client only. Actually it can be added anyhow if it is identified as
+        // a Server node.
+        //
+        // // Obviously we found a potential Kad peer
+        // self.try_add_peer(source, true, false);
 
         let response = match request {
             KadRequestMsg::Ping => {

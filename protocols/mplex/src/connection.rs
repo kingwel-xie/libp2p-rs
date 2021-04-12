@@ -112,7 +112,6 @@ use std::fmt;
 use std::pin::Pin;
 use std::time::Duration;
 use stream::{State, Stream};
-use crate::connection::ControlCommand::AcceptStream;
 
 /// `Control` to `Connection` commands.
 #[derive(Debug)]

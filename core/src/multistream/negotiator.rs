@@ -151,7 +151,7 @@ impl<TProto: AsRef<[u8]> + Clone + fmt::Debug> Negotiator<TProto> {
                 _ => return Err(ProtocolError::InvalidMessage.into()),
             }
         }
-        io.into_inner().close2().await;
+        let _ = io.into_inner().close2().await;
         Err(NegotiationError::Failed(cause))
     }
 }
