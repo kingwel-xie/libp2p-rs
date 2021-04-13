@@ -121,7 +121,6 @@ where
     sec: Multistream<TSec>,
     futures: FuturesUnordered<UpgradeFuture<TMux::Output>>,
     limit: Option<NonZeroUsize>,
-    event: Option<ListenerEvent<<Self as TransportListener>::Output>>,
 }
 
 impl<TOutput, TMux, TSec> ListenerUpgrade<TOutput, TMux, TSec>
@@ -139,7 +138,6 @@ where
             sec,
             futures: FuturesUnordered::new(),
             limit: NonZeroUsize::new(10),
-            event: None,
         }
     }
 
@@ -165,86 +163,60 @@ where
 
     async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
         loop {
-            if let Some(evt) = self.event.take() {
-                return Ok(evt);
-            }
-
-            let mut next_incoming = if self.limit.map(|limit| limit.get() > self.futures.len()).unwrap_or(true) {
-                Either::Left(self.inner.accept())
-            } else {
-                Either::Right(futures::future::pending())
-            };
+            let mut next_incoming =
+                if self.limit.map(|limit| limit.get() > self.futures.len()).unwrap_or(true) {
+                    self.inner.accept()
+                } else {
+                    futures::future::pending().boxed()
+                };
 
             let mut next_upgraded = self.futures.next();
 
-            let next = futures::future::poll_fn(move |cx: &mut Context| {
-                let a = next_incoming.poll_unpin(cx);
-                let b = next_upgraded.poll_unpin(cx);
-
-                let upgrade_pending = match b {
-                    Poll::Pending | Poll::Ready(None) => {
-                        // when the queue is empty, FuturesUnordered next return none
-                        true
+            let next =
+                futures::future::poll_fn(move |cx: &mut Context| {
+                    if let Poll::Ready(ret) = next_incoming.poll_unpin(cx) {
+                        return Poll::Ready(Either::Left(ret));
                     }
-                    _ => false,
-                };
-
-                if a.is_pending() && upgrade_pending {
-                    return Poll::Pending;
-                }
-                Poll::Ready((a, b))
-            });
-
-            let (incoming, upgraded) = next.await;
-
-            let mut event: Option<ListenerEvent<Self::Output>> = None;
-
-            if let Poll::Ready(ret) = incoming {
-                match ret? {
-                    ListenerEvent::AddressAdded(a) => {
-                        event = Some(ListenerEvent::AddressAdded(a));
+                    match next_upgraded.poll_unpin(cx) {
+                        Poll::Pending | Poll::Ready(None) => {
+                            // when the queue is empty, FuturesUnordered next return none
+                            return Poll::Pending
+                        },
+                        Poll::Ready(Some(ret)) => {
+                            return Poll::Ready(Either::Right(ret));
+                        }
                     }
-                    ListenerEvent::AddressDeleted(a) => {
-                        event = Some(ListenerEvent::AddressDeleted(a));
-                    }
-                    ListenerEvent::Accepted(socket) => {
-                        let sec = self.sec.clone();
-                        let mux = self.mux.clone();
+                });
 
-                        self.futures.push(
-                            async move {
+            let event_or_upgraded = next.await;
+
+            match event_or_upgraded {
+                Either::Left(ret) => {
+                    match ret? {
+                        ListenerEvent::AddressAdded(a) => {
+                            return Ok(ListenerEvent::AddressAdded(a));
+                        },
+                        ListenerEvent::AddressDeleted(a) => {
+                            return Ok(ListenerEvent::AddressDeleted(a));
+                        }
+                        ListenerEvent::Accepted(socket) => {
+
+                            let sec = self.sec.clone();
+                            let mux = self.mux.clone();
+
+                            self.futures.push(async move {
                                 log::trace!("accept a new connection from {}, upgrading...", socket.remote_multiaddr());
                                 //futures_timer::Delay::new(Duration::from_secs(3)).await;
                                 let sec_socket = sec.select_inbound(socket).await?;
                                 mux.select_inbound(sec_socket).await
-                            }
-                            .boxed(),
-                        );
+                            }.boxed());
+                        },
                     }
+                },
+                Either::Right(ret) => {
+                    let o = ret?;
+                    return Ok(ListenerEvent::Accepted(Box::new(o)));
                 }
-            }
-
-            match upgraded {
-                Poll::Pending => { /* continue */ }
-                Poll::Ready(Some(Ok(o))) => {
-                    let evt: ListenerEvent<Self::Output> = ListenerEvent::Accepted(Box::new(o));
-                    if event.is_some() {
-                        self.event = Some(evt);
-                    } else {
-                        event = Some(evt);
-                    }
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    // TODO Is it necessary to strictly follow the sequence of events when an error occurs
-                    return Err(e);
-                }
-                Poll::Ready(None) => {
-                    // futures is empty and new incoming pushed to futures
-                    // continue loop
-                }
-            }
-            if let Some(evt) = event {
-                return Ok(evt);
             }
         }
 
