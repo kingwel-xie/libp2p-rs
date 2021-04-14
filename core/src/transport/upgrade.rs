@@ -163,30 +163,28 @@ where
 
     async fn accept(&mut self) -> Result<ListenerEvent<Self::Output>, TransportError> {
         loop {
-            let mut next_incoming =
-                if self.limit.map(|limit| limit.get() > self.futures.len()).unwrap_or(true) {
-                    self.inner.accept()
-                } else {
-                    futures::future::pending().boxed()
-                };
+            let mut next_incoming = if self.limit.map(|limit| limit.get() > self.futures.len()).unwrap_or(true) {
+                self.inner.accept()
+            } else {
+                futures::future::pending().boxed()
+            };
 
             let mut next_upgraded = self.futures.next();
 
-            let next =
-                futures::future::poll_fn(move |cx: &mut Context| {
-                    if let Poll::Ready(ret) = next_incoming.poll_unpin(cx) {
-                        return Poll::Ready(Either::Left(ret));
+            let next = futures::future::poll_fn(move |cx: &mut Context| {
+                if let Poll::Ready(ret) = next_incoming.poll_unpin(cx) {
+                    return Poll::Ready(Either::Left(ret));
+                }
+                match next_upgraded.poll_unpin(cx) {
+                    Poll::Pending | Poll::Ready(None) => {
+                        // when the queue is empty, FuturesUnordered next return none
+                        return Poll::Pending;
                     }
-                    match next_upgraded.poll_unpin(cx) {
-                        Poll::Pending | Poll::Ready(None) => {
-                            // when the queue is empty, FuturesUnordered next return none
-                            return Poll::Pending
-                        },
-                        Poll::Ready(Some(ret)) => {
-                            return Poll::Ready(Either::Right(ret));
-                        }
+                    Poll::Ready(Some(ret)) => {
+                        return Poll::Ready(Either::Right(ret));
                     }
-                });
+                }
+            });
 
             let event_or_upgraded = next.await;
 
@@ -195,24 +193,26 @@ where
                     match ret? {
                         ListenerEvent::AddressAdded(a) => {
                             return Ok(ListenerEvent::AddressAdded(a));
-                        },
+                        }
                         ListenerEvent::AddressDeleted(a) => {
                             return Ok(ListenerEvent::AddressDeleted(a));
                         }
                         ListenerEvent::Accepted(socket) => {
-
                             let sec = self.sec.clone();
                             let mux = self.mux.clone();
 
-                            self.futures.push(async move {
-                                log::trace!("accept a new connection from {}, upgrading...", socket.remote_multiaddr());
-                                //futures_timer::Delay::new(Duration::from_secs(3)).await;
-                                let sec_socket = sec.select_inbound(socket).await?;
-                                mux.select_inbound(sec_socket).await
-                            }.boxed());
-                        },
+                            self.futures.push(
+                                async move {
+                                    log::trace!("accept a new connection from {}, upgrading...", socket.remote_multiaddr());
+                                    //futures_timer::Delay::new(Duration::from_secs(3)).await;
+                                    let sec_socket = sec.select_inbound(socket).await?;
+                                    mux.select_inbound(sec_socket).await
+                                }
+                                .boxed(),
+                            );
+                        }
                     }
-                },
+                }
                 Either::Right(ret) => {
                     let o = ret?;
                     return Ok(ListenerEvent::Accepted(Box::new(o)));
